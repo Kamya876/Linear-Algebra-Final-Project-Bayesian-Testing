@@ -37,7 +37,3 @@ Overleaf: upload `docs/main.tex` and everything in `figures/` (keep `figures/` n
 PNGs to the project root — `main.tex` searches both `../figures/` and `figures/`). No `.bib` file is needed.
 Locally: `cd docs && pdflatex main.tex` (run twice).
 
-## Before submitting
-- Each member submits their own GitHub link and Overleaf read-only link on Canvas (links block in the Excel plan).
-- Confirm the project leader meets the "has not led before" condition.
-- Only record "Checked by" in the Excel register after that person has really reviewed the derivation.
