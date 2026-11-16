@@ -1,0 +1,5 @@
+x_A=92, x_B=121, n=1000
+posterior_probability_B_better=0.98189000
+monte_carlo_se=0.00042169
+z=2.10213652, p_value=0.03554132
+type1_error_estimate=0.04250000, power_estimate=0.32100000

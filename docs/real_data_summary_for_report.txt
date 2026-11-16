@@ -1,0 +1,10 @@
+Cookie Cats real-data analysis
+Dataset: data\cookie_cats.csv; rows=90189; columns=5
+Group A = gate_30; Group B = gate_40
+Prior: Beta(1, 1); Monte Carlo draws=200,000; seed=0
+
+    outcome           label group_A   n_A  successes_A   rate_A        posterior_A  ci_A_low  ci_A_high group_B   n_B  successes_B   rate_B        posterior_B  ci_B_low  ci_B_high  probability_B_better  monte_carlo_se  difference_ci_low  difference_ci_high  z_statistic  frequentist_p_value
+retention_1 Day-1 retention gate_30 44700        20034 0.448188 Beta(20035, 24667)  0.443582   0.452802 gate_40 45489        20119 0.442283 Beta(20120, 25371)  0.437724   0.446852              0.037055        0.000422          -0.012376            0.000577    -1.784086             0.074410
+retention_7 Day-7 retention gate_30 44700         8502 0.190201  Beta(8503, 36199)  0.186590   0.193867 gate_40 45489         8279 0.182000  Beta(8280, 37211)  0.178482   0.185573              0.000805        0.000063          -0.013263           -0.003113    -3.164359             0.001554
+
+Interpretation note: P(B>A|data) is Bayesian posterior evidence; the z-test p-value is a frequentist tail probability. They are different quantities.

@@ -1,0 +1,9 @@
+metric,value
+rows,90189.0
+columns,5.0
+missing_total,0.0
+duplicate_userid,0.0
+n_gate_30,44700.0
+n_gate_40,45489.0
+srm_z,2.627242841765075
+srm_p,0.008607987810836245

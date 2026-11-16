@@ -1,0 +1,331 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm,booktabs,array,longtable}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\graphicspath{{../figures/}{figures/}}
+
+\title{DS5020 Final Project -- Iteration 2\\[3pt]\large Bayesian A/B Testing: Mathematical Foundations, Data and Simulation}
+\author{Kamya Kanara \and Rishita \and Vaibhavi}
+\date{Fall 2026}
+
+\newtheorem{proposition}{Proposition}
+\newtheorem{definition}{Definition}
+\newcommand{\signoff}[2]{\par\smallskip\noindent\textit{Owner: #1\quad Checked by: #2}\par}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Beta}{\operatorname{Beta}}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+This report develops the mathematical foundation for Bayesian A/B testing. We model a binary outcome in each group with a Binomial likelihood and a Beta prior, derive the Beta posterior and its moments, derive a Monte Carlo estimator for $P(p_B>p_A\mid\text{data})$ together with its standard error, and derive the pooled two-proportion $z$-test as a frequentist comparison. A known-truth simulation checks every derivation numerically, and the Cookie Cats randomized experiment is described as the real dataset. In the real data, \texttt{gate\_30} has higher observed retention than \texttt{gate\_40} for both day-one and day-seven outcomes; the day-seven difference is clear in both the Bayesian and frequentist analyses, while the day-one difference is not significant at the 5\% level.
+\end{abstract}
+
+\section{Project objective and scope}
+The objective is to compare the success probabilities of two versions, A and B, and to quantify uncertainty about which version performs better. For the Cookie Cats application, one trial is one player, the two groups are the assigned game versions (\texttt{gate\_30} $=$ A and \texttt{gate\_40} $=$ B), and a ``success'' (the analogue of a click) is a player returning to the game. Day-one retention is the primary outcome and day-seven retention is a secondary outcome.
+
+\section{Notation}
+\begin{longtable}{l p{0.72\textwidth}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning / dimension}\\
+\midrule
+\endhead
+$g\in\{A,B\}$ & Group index.\\
+$n_A,n_B$ & Number of independent trials in groups A and B; positive integers.\\
+$x_A,x_B$ & Number of successes in groups A and B; integers with $0\le x_g\le n_g$.\\
+$Y_{g,i}$ & Outcome of trial $i$ in group $g$; $Y_{g,i}\in\{0,1\}$.\\
+$p_A,p_B$ & Unknown success probabilities; scalars in $[0,1]$.\\
+$\hat p_A,\hat p_B$ & Observed proportions $x_A/n_A$, $x_B/n_B$; scalars.\\
+$a,b$ & Beta prior shape parameters, $a,b>0$; scalars.\\
+$\alpha_g,\beta_g$ & Posterior Beta shape parameters, $\alpha_g=a+x_g$, $\beta_g=b+n_g-x_g$; scalars.\\
+$s_g$ & $\alpha_g+\beta_g=a+b+n_g$.\\
+$M$ & Number of Monte Carlo posterior draws; positive integer.\\
+$p_A^{(m)},p_B^{(m)}$ & $m$-th posterior draw for each group, $m=1,\dots,M$.\\
+$I_m$ & Indicator $\mathbb 1\{p_B^{(m)}>p_A^{(m)}\}\in\{0,1\}$.\\
+$q$ & The posterior probability $P(p_B>p_A\mid\text{data})\in[0,1]$.\\
+$\hat q$ & Monte Carlo estimate of $q$.\\
+$\hat p_{\mathrm{pool}}$ & Pooled proportion $(x_A+x_B)/(n_A+n_B)$.\\
+$SE_0$ & Null standard error of $\hat p_B-\hat p_A$.\\
+$z$ & Standardized test statistic; $\Phi$ is the standard normal CDF.\\
+\bottomrule
+\end{longtable}
+All quantities in this project are scalars ($1\times1$); there are no matrices. Data are stored as two length-$n_g$ binary vectors $Y_g\in\{0,1\}^{n_g}$.
+
+\section{Definitions}
+\begin{definition}[Bernoulli trial]
+A Bernoulli trial has outcome $Y\in\{0,1\}$ with $P(Y=1)=p$ and $P(Y=0)=1-p$.
+\end{definition}
+\begin{definition}[Binomial distribution]
+If $X$ counts successes in $n$ independent Bernoulli trials with common success probability $p$, then
+$P(X=x\mid n,p)=\binom{n}{x}p^x(1-p)^{n-x}$, $x=0,\dots,n$.
+\end{definition}
+\begin{definition}[Beta function and Beta distribution]
+For $a,b>0$ the beta function is $B(a,b)=\int_0^1u^{a-1}(1-u)^{b-1}\,du=\Gamma(a)\Gamma(b)/\Gamma(a+b)$, where $\Gamma(t+1)=t\,\Gamma(t)$. A random variable $p$ has a $\Beta(a,b)$ distribution if it has density $f(p\mid a,b)=p^{a-1}(1-p)^{b-1}/B(a,b)$ on $0<p<1$.
+\end{definition}
+\begin{definition}[Conditional probability and Bayes' theorem]
+$P(A\mid B)=P(A\cap B)/P(B)$ for $P(B)>0$. For a parameter $p$ and data $x$, Bayes' theorem gives $\pi(p\mid x)=P(x\mid p)\pi(p)/P(x)$, so $\pi(p\mid x)\propto P(x\mid p)\pi(p)$ as a function of $p$.
+\end{definition}
+\begin{definition}[Prior, likelihood, posterior]
+The prior $\pi(p)$ describes $p$ before seeing data; the likelihood is $P(x\mid p)$ viewed as a function of $p$; the posterior $\pi(p\mid x)$ is the conditional distribution of $p$ after observing $x$.
+\end{definition}
+\begin{definition}[Credible interval]
+A 95\% credible interval $[L,U]$ satisfies $P(L\le p\le U\mid\text{data})=0.95$. The equal-tail interval uses the posterior 0.025 and 0.975 quantiles.
+\end{definition}
+\begin{definition}[Expectation, variance, indicator]
+$\E[Y]=\sum_y y\,P(Y=y)$ and $\Var(Y)=\E[Y^2]-(\E[Y])^2$. The indicator $\mathbb 1\{E\}$ equals 1 if event $E$ occurs and 0 otherwise, so $\E[\mathbb 1\{E\}]=P(E)$.
+\end{definition}
+\begin{definition}[Monte Carlo estimator and standard error]
+For independent draws with indicators $I_m$, $\hat q=M^{-1}\sum_{m=1}^MI_m$ estimates $P(E)$. The standard error of an estimator is the square root of its variance.
+\end{definition}
+\begin{definition}[Hypothesis test, $p$-value]
+Under $H_0$, the $p$-value is the probability, computed assuming $H_0$, of a test statistic at least as extreme as the one observed. For a two-sided $z$-test, $p=2\{1-\Phi(|z_{\rm obs}|)\}$.
+\end{definition}
+
+\section{Data-to-mathematics mapping}
+In the Cookie Cats data, one row is one player (one Bernoulli trial). Column \texttt{version} gives the group ($g=A$ for \texttt{gate\_30}, $g=B$ for \texttt{gate\_40}). Column \texttt{retention\_1} is the primary binary outcome: $Y_{g,i}=1$ if player $i$ returned one day after installing and $0$ otherwise. Then $n_g$ is the number of rows in group $g$ and $x_g=\sum_iY_{g,i}$ is the number of returning players. The same mapping applies to \texttt{retention\_7}. One entry of the data is one player's 0/1 outcome.
+
+\section{Assumptions}
+\begin{enumerate}[label=A\arabic*.]
+\item \textbf{Binary outcome.} Every trial is a 0/1 success indicator. If the outcome is miscoded or not binary the Binomial likelihood is wrong. \emph{Check:} the outcome columns have exactly two values (Table~\ref{tab:overview}).
+\item \textbf{Within-group independence.} Outcomes are independent within each arm. If players are repeated or clustered, the variance of $x_g$ exceeds $n_gp_g(1-p_g)$ and the posterior is too narrow. \emph{Check:} \texttt{userid} has no duplicates (0 found).
+\item \textbf{Common probability within an arm.} All players in arm $g$ share one $p_g$. If cohorts differ, $p_g$ is an average over cohorts and the Binomial variance is only approximate. \emph{Check (Iteration 3):} compare rates across available covariates such as \texttt{sum\_gamerounds} strata.
+\item \textbf{Random assignment, no interference.} Assignment is randomized and one player's version does not affect another's outcome; otherwise $p_B-p_A$ is confounded. \emph{Check:} the group sizes (44{,}700 vs.\ 45{,}489) differ by more than a fair 50/50 split would usually produce (sample-ratio test $z=2.63$, $p=0.0086$). This is a flag to investigate in Iteration 3 (for example, for differences in how installs were logged); it does not by itself show bias.
+\item \textbf{Independent arms.} No player is in both arms; otherwise $\Var(\hat p_B-\hat p_A)$ is not the sum of variances. \emph{Check:} unique \texttt{userid}s, each with one \texttt{version}.
+\item \textbf{Prior.} The $\Beta(a,b)$ prior has $a,b>0$ and is fixed before updating; with small $n$ the prior affects the posterior (weight $(a+b)/(a+b+n)$, Question~3). \emph{Check (Iteration 3):} repeat with other priors.
+\item \textbf{Independent Monte Carlo draws.} The formula $\sqrt{q(1-q)/M}$ requires independent draws. \emph{Check:} draw directly from the Beta posteriors with a fixed seed and compare the empirical standard deviation of $\hat q$ with the formula (Section~\ref{sec:sim}).
+\item \textbf{Normal approximation.} The $z$-test needs large expected success and failure counts in both arms, roughly $n_g\hat p_{\rm pool}\ge10$ and $n_g(1-\hat p_{\rm pool})\ge10$; otherwise the normal tail probability is inaccurate. \emph{Check:} counts are in the hundreds or thousands in every cell here.
+\end{enumerate}
+
+\section{Iteration 2 -- Math Questions}\label{sec:questions}
+\subsection{Question 1: Binomial likelihood}
+Let $Y_i=1$ if visitor $i$ clicks (returns) and $0$ otherwise, with $Y_1,\dots,Y_n$ independent and $P(Y_i=1)=p$. Let $X=\sum_{i=1}^nY_i$.
+A particular sequence with $x$ ones and $n-x$ zeros has probability $p^x(1-p)^{n-x}$ (independence: probability of an intersection is the product). There are $\binom{n}{x}$ such sequences (counting), and they are disjoint events (additivity). Hence
+\[
+L(p\mid x,n)=P(X=x\mid p)=\binom{n}{x}p^x(1-p)^{n-x}.
+\]
+Its logarithm is $\ell(p)=\log\binom{n}{x}+x\log p+(n-x)\log(1-p)$; the first term does not depend on $p$, so the information about $p$ is carried by the kernel $p^x(1-p)^{n-x}$.
+\signoff{Rishita}{Kamya Kanara}
+
+\subsection{Question 2: Beta--Binomial conjugacy}
+\begin{proposition}
+If $X\mid p\sim\mathrm{Binomial}(n,p)$ and $p\sim\Beta(a,b)$ with $a,b>0$, then $p\mid X=x\sim\Beta(a+x,\,b+n-x)$.
+\end{proposition}
+\begin{proof}
+\begin{align*}
+\pi(p\mid x)&\propto P(x\mid p)\,\pi(p) &&\text{(Bayes' theorem)}\\
+&=\binom{n}{x}p^x(1-p)^{n-x}\cdot\frac{p^{a-1}(1-p)^{b-1}}{B(a,b)} &&\text{(Question 1 and Beta density)}\\
+&\propto p^{x+a-1}(1-p)^{n-x+b-1} &&\text{(add exponents; $\binom{n}{x}/B(a,b)$ does not depend on $p$)}.
+\end{align*}
+Put $\alpha=a+x$ and $\beta=b+n-x$. The right side is the kernel $p^{\alpha-1}(1-p)^{\beta-1}$. A posterior density must integrate to 1, and $\int_0^1p^{\alpha-1}(1-p)^{\beta-1}dp=B(\alpha,\beta)$ (definition of the beta function), so the normalizing constant is $1/B(\alpha,\beta)$ and $\pi(p\mid x)=p^{\alpha-1}(1-p)^{\beta-1}/B(\alpha,\beta)$, the $\Beta(\alpha,\beta)$ density.
+\end{proof}
+\signoff{Rishita}{Kamya Kanara}
+
+\subsection{Question 3: Posterior mean, variance and weighted average}
+\begin{proposition}
+If $p\sim\Beta(\alpha,\beta)$ and $s=\alpha+\beta$, then $\E[p]=\alpha/s$ and $\Var(p)=\alpha\beta/\{s^2(s+1)\}$.
+\end{proposition}
+\begin{proof}
+For $k\ge0$, $\E[p^k]=\int_0^1p^k\frac{p^{\alpha-1}(1-p)^{\beta-1}}{B(\alpha,\beta)}dp=\frac{B(\alpha+k,\beta)}{B(\alpha,\beta)}$ (definition of expectation and of $B$). Using $B(u,v)=\Gamma(u)\Gamma(v)/\Gamma(u+v)$ and $\Gamma(t+1)=t\Gamma(t)$:
+\begin{align*}
+\E[p]&=\frac{\Gamma(\alpha+1)\Gamma(s)}{\Gamma(\alpha)\Gamma(s+1)}=\frac{\alpha}{s},\\
+\E[p^2]&=\frac{\Gamma(\alpha+2)\Gamma(s)}{\Gamma(\alpha)\Gamma(s+2)}=\frac{\alpha(\alpha+1)}{s(s+1)}.
+\end{align*}
+By $\Var(p)=\E[p^2]-\E[p]^2$,
+\[
+\Var(p)=\frac{\alpha(\alpha+1)}{s(s+1)}-\frac{\alpha^2}{s^2}
+=\frac{\alpha\{(\alpha+1)s-\alpha(s+1)\}}{s^2(s+1)}
+=\frac{\alpha(s-\alpha)}{s^2(s+1)}=\frac{\alpha\beta}{s^2(s+1)}.\qedhere
+\]
+\end{proof}
+With $\alpha=a+x$, $\beta=b+n-x$, $s=a+b+n$ (Question 2):
+\[
+\E[p\mid x]=\frac{a+x}{a+b+n},\qquad
+\Var(p\mid x)=\frac{(a+x)(b+n-x)}{(a+b+n)^2(a+b+n+1)}.
+\]
+\textbf{Weighted average.} Let $\mu_0=a/(a+b)$ (prior mean), $\hat p=x/n$, and $w=n/(a+b+n)$. Then
+\begin{align*}
+(1-w)\mu_0+w\hat p&=\frac{a+b}{a+b+n}\cdot\frac{a}{a+b}+\frac{n}{a+b+n}\cdot\frac{x}{n} &&\text{(since }1-w=\tfrac{a+b}{a+b+n})\\
+&=\frac{a+x}{a+b+n}=\E[p\mid x] &&\text{(cancel, add numerators)}.
+\end{align*}
+So the \emph{data weight} is $w=n/(a+b+n)$ and the \emph{prior weight} is $1-w=(a+b)/(a+b+n)$; as $n\to\infty$, $w\to1$.
+\signoff{Rishita}{Kamya Kanara}
+
+\subsection{Question 4: Monte Carlo estimate is unbiased; its standard error}
+Let $p_A^{(m)},p_B^{(m)}$ ($m=1,\dots,M$) be independent draws from the two posteriors, $I_m=\mathbb 1\{p_B^{(m)}>p_A^{(m)}\}$, and $q=P(p_B>p_A\mid\text{data})$. Conditional on the data, the pairs are i.i.d., so the $I_m$ are i.i.d.\ Bernoulli with $\E[I_m]=P(p_B^{(m)}>p_A^{(m)}\mid\text{data})=q$ (expectation of an indicator is the probability of its event). Let $\hat q=M^{-1}\sum_mI_m$.
+
+\emph{Unbiasedness.} By linearity of expectation, $\E[\hat q]=M^{-1}\sum_m\E[I_m]=M^{-1}\cdot Mq=q$.
+
+\emph{Variance.} Since $I_m^2=I_m$, $\E[I_m^2]=q$, so $\Var(I_m)=q-q^2=q(1-q)$. Because the $I_m$ are independent, the variance of the sum is the sum of the variances, and $\Var(cZ)=c^2\Var(Z)$:
+\[
+\Var(\hat q)=\frac1{M^2}\sum_{m=1}^M q(1-q)=\frac{q(1-q)}{M},\qquad
+SE(\hat q)=\sqrt{\frac{q(1-q)}M}\approx\sqrt{\frac{\hat q(1-\hat q)}M},
+\]
+where the unknown $q$ is replaced by $\hat q$ (consistent by the law of large numbers). Hence $SE\propto M^{-1/2}$: quadrupling $M$ halves the error. (Independence of the draws is used in the variance step only; unbiasedness needs no independence.)
+\signoff{Vaibhavi}{Rishita}
+
+\subsection{Question 5: The pooled two-proportion \texorpdfstring{$z$}{z}-test}
+We test $H_0:p_A=p_B$ against $H_1:p_A\ne p_B$.
+
+\emph{Step 1: variance of one proportion.} For $Y\sim\mathrm{Bernoulli}(p)$, $\E[Y]=p$ and $\E[Y^2]=p$, so $\Var(Y)=p(1-p)$. For $\hat p=n^{-1}\sum_iY_i$ with independent $Y_i$, $\E[\hat p]=p$ and $\Var(\hat p)=p(1-p)/n$.
+
+\emph{Step 2: normal approximation.} The $Y_i$ are i.i.d.\ with finite variance, so by the central limit theorem (equivalently the de Moivre--Laplace theorem for the Binomial), $\sqrt n(\hat p-p)/\sqrt{p(1-p)}\to N(0,1)$ in distribution. Thus $\hat p_g\approx N\!\big(p_g,\;p_g(1-p_g)/n_g\big)$.
+
+\emph{Step 3: the difference.} The arms are independent (A5), so $\hat p_B-\hat p_A$ is approximately normal with mean $p_B-p_A$ and variance $\frac{p_A(1-p_A)}{n_A}+\frac{p_B(1-p_B)}{n_B}$ (variances of independent variables add). Under $H_0$, $p_A=p_B=p$, the mean is $0$ and the variance is
+\[
+\Var(\hat p_B-\hat p_A\mid H_0)=p(1-p)\Big(\frac1{n_A}+\frac1{n_B}\Big).
+\]
+
+\emph{Step 4: estimating the common $p$.} Under $H_0$ the likelihood of both samples is $\propto p^{x_A+x_B}(1-p)^{n_A+n_B-x_A-x_B}$. Setting the derivative of the log-likelihood to zero, $\frac{x_A+x_B}{p}-\frac{n_A+n_B-x_A-x_B}{1-p}=0$, gives the maximum-likelihood estimate
+\[
+\hat p_{\rm pool}=\frac{x_A+x_B}{n_A+n_B}.
+\]
+(The second derivative is negative, so this is a maximum.) Since $\hat p_{\rm pool}\to p$ in probability under $H_0$, replacing $p$ by $\hat p_{\rm pool}$ in the standard deviation does not change the limiting law (Slutsky's theorem):
+\[
+SE_0=\sqrt{\hat p_{\rm pool}(1-\hat p_{\rm pool})\Big(\frac1{n_A}+\frac1{n_B}\Big)},\qquad
+Z=\frac{\hat p_B-\hat p_A}{SE_0}\ \dot\sim\ N(0,1)\ \text{under }H_0 .
+\]
+\emph{Step 5: $p$-value.} For the observed $z$, the two-sided $p$-value is $2\{1-\Phi(|z|)\}$. It is the probability of a statistic at least this extreme if $H_0$ were true, not the probability that $H_0$ is true.
+\signoff{Kamya Kanara}{Vaibhavi}
+
+\section{Small hand-worked example}
+Take $\Beta(1,1)$ priors, $x_A=2$ of $n_A=10$, and $x_B=4$ of $n_B=10$. Then $p_A\mid\text{data}\sim\Beta(3,9)$ with mean $3/12=0.25$, and $p_B\mid\text{data}\sim\Beta(5,7)$ with mean $5/12\approx0.4167$. For the test, $\hat p_{\rm pool}=6/20=0.3$, $SE_0=\sqrt{0.3(0.7)(0.2)}\approx0.20494$, $z=(0.4-0.2)/0.20494\approx0.976$, and the two-sided $p$-value is about $0.329$. The script \texttt{src/hand\_example.py} reproduces these numbers.
+
+\section{Algorithm as mathematics}
+All quantities are scalars, so no matrix sizes arise; costs are in scalar operations. For each group $g\in\{A,B\}$:
+\begin{enumerate}
+\item Count $n_g$ and $x_g=\sum_iY_{g,i}$ ($Y_g\in\{0,1\}^{n_g}$). $n_g$ additions: $O(n_g)$.
+\item Update $\alpha_g=a+x_g$, $\beta_g=b+n_g-x_g$: 3 additions/subtractions, $O(1)$.
+\item Posterior mean $\alpha_g/s_g$ and variance $\alpha_g\beta_g/\{s_g^2(s_g+1)\}$: about 8 operations, $O(1)$.
+\item Equal-tail 95\% interval: evaluate the Beta quantile function at $0.025$ and $0.975$ (a library root-finder; $O(1)$ in the data size).
+\item Draw $p_A^{(m)}\sim\Beta(\alpha_A,\beta_A)$, $p_B^{(m)}\sim\Beta(\alpha_B,\beta_B)$ for $m=1..M$; set $I_m=\mathbb 1\{p_B^{(m)}>p_A^{(m)}\}$; compute $\hat q=M^{-1}\sum_mI_m$ and $SE=\sqrt{\hat q(1-\hat q)/M}$. $O(M)$ time.
+\item Compute $\hat p_{\rm pool}$, $SE_0$, $z=(\hat p_B-\hat p_A)/SE_0$, and $p=2\{1-\Phi(|z|)\}$: about 15 operations, $O(1)$.
+\end{enumerate}
+Total: $O(n_A+n_B+M)$ time.
+
+\section{Real dataset: Cookie Cats}
+\label{sec:real}
+We analyze the Cookie Cats randomized experiment \cite{cookiecats}: players were randomly shown the first gate at level 30 (A) or level 40 (B). Table~\ref{tab:overview} describes the file; the script is \texttt{src/real\_data.py}.
+\begin{table}[H]
+\centering
+\caption{Cookie Cats dataset overview}\label{tab:overview}
+\begin{tabular}{llp{6.2cm}}
+\toprule
+Variable & Type & Meaning\\
+\midrule
+\texttt{userid} & integer & player id; 0 duplicates\\
+\texttt{version} & text & \texttt{gate\_30} (A) or \texttt{gate\_40} (B)\\
+\texttt{sum\_gamerounds} & integer & rounds played in first 14 days (median 16, max 49{,}854)\\
+\texttt{retention\_1} & Boolean (0/1) & returned 1 day after install\\
+\texttt{retention\_7} & Boolean (0/1) & returned 7 days after install\\
+\bottomrule
+\end{tabular}
+
+\smallskip
+90{,}189 rows, 5 columns, 0 missing values in every column. Group A: 44{,}700 players; group B: 45{,}489 players.
+\end{table}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{real_data_group_sizes.png}
+\caption{Left: players per version. Right: observed day-1 and day-7 retention by version.}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{real_data_gamerounds.png}
+\caption{\texttt{sum\_gamerounds} is heavily right-skewed (log scale), with a few extreme players.}
+\end{figure}
+
+\subsection{Day-one retention (primary outcome)}
+Group A has 20{,}034 returning players of 44{,}700 (44.8188\%); group B has 20{,}119 of 45{,}489 (44.2283\%). With independent $\Beta(1,1)$ priors the posteriors are $\Beta(20035,24667)$ and $\Beta(20120,25371)$, with 95\% credible intervals $[0.443582,0.452802]$ (A) and $[0.437724,0.446852]$ (B). With $M=200{,}000$ draws (seed 0), $\hat q=P(p_B>p_A\mid\text{data})=0.037055$ with $SE=0.000422$, and the 95\% interval for $p_B-p_A$ is $[-0.012376,\,0.000577]$. The pooled $z$-test gives $z=-1.784086$, two-sided $p=0.07440966$. The day-one difference is therefore not significant at 5\%, and the credible interval for the difference contains zero.
+
+\subsection{Day-seven retention (secondary outcome)}
+Group A has 8{,}502 of 44{,}700 (19.0201\%); group B has 8{,}279 of 45{,}489 (18.2000\%). Posteriors: $\Beta(8503,36199)$ and $\Beta(8280,37211)$, with 95\% intervals $[0.186590,0.193867]$ (A) and $[0.178482,0.185573]$ (B). With $M=200{,}000$, $\hat q=0.000805$ ($SE=0.000063$), and the 95\% interval for $p_B-p_A$ is $[-0.013263,\,-0.003113]$. The $z$-test gives $z=-3.164359$, $p=0.00155425$.
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{real_data_retention_1_posterior.png}\hfill
+\includegraphics[width=0.48\textwidth]{real_data_retention_7_posterior.png}
+\caption{Posterior distributions for day-1 (left) and day-7 (right) retention.}
+\end{figure}
+\begin{table}[H]
+\centering
+\caption{Bayesian and frequentist results (A $=$ \texttt{gate\_30}, B $=$ \texttt{gate\_40})}
+\begin{tabular}{lrrrr}
+\toprule
+Outcome & A rate & B rate & $P(p_B>p_A\mid\text{data})$ & $z$-test $p$-value\\
+\midrule
+Day 1 & 44.8188\% & 44.2283\% & 3.7055\% & 0.07441\\
+Day 7 & 19.0201\% & 18.2000\% & 0.0805\% & 0.00155\\
+\bottomrule
+\end{tabular}
+\end{table}
+Note that $P(p_B>p_A\mid\text{data})=0.037$ for day one is close to half the two-sided $p$-value $0.074$; this is expected with a flat prior and large $n$, but the two quantities answer different questions (posterior probability of a direction versus tail probability under $H_0$).
+
+\section{Simulation check with known truth}
+\label{sec:sim}
+\textbf{Model.} True rates $p_A=0.10$, $p_B=0.12$; $n_A=n_B=1000$; $x_g\sim\mathrm{Binomial}(1000,p_g)$ drawn with \texttt{numpy.random.default\_rng(0)}; $\Beta(1,1)$ priors; $M=100{,}000$ posterior draws. Realized counts: $x_A=92$, $x_B=121$. The script is \texttt{src/simulation.py}.
+\begin{table}[H]
+\centering
+\caption{True values versus estimates (seed 0)}
+\begin{tabular}{lll}
+\toprule
+Quantity & True / reference value & Estimate\\
+\midrule
+$p_A$: posterior mean (95\% interval) & 0.1000 & 0.0928 $[0.0756,0.1115]$\\
+$p_B$: posterior mean (95\% interval) & 0.1200 & 0.1218 $[0.1022,0.1427]$\\
+Posterior variance of $p_A$ (formula vs.\ draws) & $8.395\times10^{-5}$ & $8.422\times10^{-5}$\\
+Posterior variance of $p_B$ (formula vs.\ draws) & $1.0661\times10^{-4}$ & $1.0656\times10^{-4}$\\
+$P(p_B>p_A\mid\text{data})$ (numerical integral vs.\ MC) & 0.98213 & 0.98189 ($SE$ 0.000422)\\
+$z$ / two-sided $p$ (this sample) & -- & $2.102$ / $0.0355$\\
+$z$-test Type-I error ($p_A=p_B=0.10$, 2000 reps) & 0.05 & 0.0425 (MC SE 0.0049)\\
+$z$-test power ($p_A=0.10,p_B=0.12$, 2000 reps) & 0.2981 (theory) & 0.3210 (MC SE 0.0104)\\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[H]
+\centering
+\caption{Monte Carlo standard error: 300 repetitions of $\hat q$ for each $M$}
+\begin{tabular}{rrr}
+\toprule
+$M$ & Empirical SD of $\hat q$ & $\sqrt{q(1-q)/M}$\\
+\midrule
+100 & 0.01318 & 0.01325\\
+1{,}000 & 0.00420 & 0.00419\\
+10{,}000 & 0.00127 & 0.00133\\
+\bottomrule
+\end{tabular}
+\end{table}
+\textbf{What the simulation confirms, one derivation at a time.}
+\begin{itemize}[nosep]
+\item \emph{Q1--Q2 (likelihood, conjugacy):} both 95\% intervals from the $\Beta(1+x_g,\,1+n-x_g)$ posteriors contain the true rate, and the posterior means (0.0928, 0.1218) are close to 0.10 and 0.12.
+\item \emph{Q3 (moments, weighted average):} the direct mean and the weighted average $(1-w)\mu_0+w\hat p$ agree to 10 decimals, and the variance formula matches the sample variance of the draws to 3 significant figures.
+\item \emph{Q4 (Monte Carlo):} $\hat q=0.98189$ is $0.57$ standard errors from the numerical-integral value $0.98213$, and the empirical SD of $\hat q$ follows $\sqrt{q(1-q)/M}$ across $M=100,1000,10000$ (Figure~\ref{fig:se}).
+\item \emph{Q5 ($z$-test):} the Type-I error 0.0425 is within 1.5 Monte Carlo SEs of 0.05, and the simulated power 0.321 is within about 2.2 SEs of the large-sample power 0.298; the test is under-powered at $n=1000$ for a 2-point difference.
+\end{itemize}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{simulation_posterior.png}\hfill
+\includegraphics[width=0.48\textwidth]{simulation_mc_se_scaling.png}
+\caption{Left: simulation posteriors. Right: Monte Carlo standard error versus $M$ (log--log).}\label{fig:se}
+\end{figure}
+
+\section{Team ownership and checking}
+\textbf{Project Leader:} Kamya Kanara (assigns owners/checkers, maintains the task table in \texttt{docs/}, presents status at the check-in).
+\begin{itemize}[nosep]
+\item Rishita: Questions 1--3, notation and assumptions. Checker: Kamya Kanara.
+\item Vaibhavi: Question 4, dataset description and simulation plots. Checker: Rishita.
+\item Kamya Kanara: Question 5, code integration and numerical verification. Checker: Vaibhavi.
+\end{itemize}
+Each question above ends with its owner and checker; every member can explain every derivation.
+
+\section{Conclusion}
+The known-truth simulation agrees with the Beta--Binomial update, the posterior moments, the weighted-average identity, the Monte Carlo estimator and its standard error, and the pooled $z$-test. In Cookie Cats, \texttt{gate\_30} has a slightly higher day-one retention rate; the evidence is not conclusive at 5\% ($p=0.074$). For day seven, \texttt{gate\_30} is higher and both analyses give strong evidence ($P(p_B>p_A\mid\text{data})=0.08\%$, $p=0.0016$). These results describe retention in this dataset and do not explain why the groups differ. The group sizes are somewhat unbalanced ($p=0.0086$ for a 50/50 split), so Iteration 3 should examine assignment and logging, prior sensitivity and player subgroups. The Bayesian posterior probability and the frequentist $p$-value should not be interchanged.
+
+\begin{thebibliography}{9}
+\bibitem{gelman2013} A.~Gelman, J.~B.~Carlin, H.~S.~Stern, D.~B.~Dunson, A.~Vehtari, D.~B.~Rubin. \emph{Bayesian Data Analysis}, 3rd ed., CRC Press, 2013 (Beta--Binomial conjugacy, Ch.~2).
+\bibitem{casella2002} G.~Casella and R.~L.~Berger. \emph{Statistical Inference}, 2nd ed., Duxbury, 2002 (central limit theorem, tests for proportions).
+\bibitem{cookiecats} Cookie Cats mobile-game A/B test, Kaggle dataset (\texttt{cookie\_cats.csv}).
+\end{thebibliography}
+\end{document}
