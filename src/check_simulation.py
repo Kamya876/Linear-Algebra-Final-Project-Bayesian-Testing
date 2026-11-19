@@ -6,6 +6,7 @@ from methods import (
     my_mc_probability,
     my_grid_probability
 )
+from methods import my_z_test
 from scipy.stats import beta
 import numpy as np
 import matplotlib.pyplot as plt
@@ -230,6 +231,184 @@ def check_assumptions():
     print("- Random assignment: not explicitly simulated")
 
 
+def test_null_rejection_rate():
+    """
+    Check the false-positive rate of the z-test
+    when p_A = p_B = 0.10.
+    """
+    print("\n=== NULL SIMULATION: 1000 EXPERIMENTS ===")
+
+    rng = np.random.default_rng(0)
+
+    n_A = 1000
+    n_B = 1000
+    p_A = 0.10
+    p_B = 0.10
+    repetitions = 1000
+    alpha = 0.05
+
+    rejections = 0
+
+    for _ in range(repetitions):
+        x_A = rng.binomial(n_A, p_A)
+        x_B = rng.binomial(n_B, p_B)
+
+        z, p_value = my_z_test(
+            x_A, n_A, x_B, n_B
+        )
+
+        if p_value < alpha:
+            rejections += 1
+
+    rejection_rate = rejections / repetitions
+
+    print(f"Experiments: {repetitions}")
+    print(f"Rejections: {rejections}")
+    print(f"Observed rejection rate: {rejection_rate:.4f}")
+    print(f"Expected rejection rate: {alpha:.4f}")
+
+    lower = 0.05 - 0.014
+    upper = 0.05 + 0.014
+
+    passed = lower <= rejection_rate <= upper
+
+    print(f"Acceptable range: [{lower:.3f}, {upper:.3f}]")
+    print(f"Result: {'PASS' if passed else 'CHECK'}")
+
+
+def test_overlapping_users():
+    print("\n=== STRESS TEST: OVERLAPPING USERS ===")
+
+    rng = np.random.default_rng(0)
+
+    n = 1000
+    overlap = 100
+
+    # Group A: users 0 through 999
+    ids_A = np.arange(n)
+
+    # Group B: first 100 users overlap with A
+    ids_B = np.concatenate([
+        np.arange(overlap),
+        np.arange(n, 2 * n - overlap)
+    ])
+
+    # Simulate binary retention outcomes
+    outcomes_A = rng.binomial(1, 0.10, n)
+    outcomes_B = rng.binomial(1, 0.12, n)
+
+    # Identify users assigned to both groups
+    overlapping_ids = np.intersect1d(ids_A, ids_B)
+
+    print(f"Group A users: {len(ids_A)}")
+    print(f"Group B users: {len(ids_B)}")
+    print(f"Users in both groups: {len(overlapping_ids)}")
+    print(f"Overlap percentage: {100 * len(overlapping_ids) / n:.1f}%")
+
+    # Apply the usual A/B test despite invalid assignment
+    x_A = int(outcomes_A.sum())
+    x_B = int(outcomes_B.sum())
+
+    z, p_value = my_z_test(x_A, n, x_B, n)
+
+    print(f"\nNaive z-statistic: {z:.6f}")
+    print(f"Naive p-value: {p_value:.6f}")
+
+    print("\nAssumption check:")
+    if len(overlapping_ids) > 0:
+        print("FAIL: Users appear in both groups.")
+        print("The independent-arm model is not justified.")
+        print("The usual z-test standard error may be incorrect.")
+
+
+def verify_grid_integration():
+    from scipy.stats import beta
+    from scipy.integrate import quad
+
+    print("\n=== GRID VS SCIPY INTEGRATION ===")
+
+    # Small example: A = 3/10, B = 5/10
+    a_A, b_A = my_beta_posterior(3, 10)
+    a_B, b_B = my_beta_posterior(5, 10)
+
+    grid_result = my_grid_probability(
+        a_A, b_A, a_B, b_B,
+        grid_size=10001
+    )
+
+    scipy_result, _ = quad(
+        lambda y: beta.pdf(y, a_B, b_B)
+                  * beta.cdf(y, a_A, b_A),
+        0, 1,
+        epsabs=1e-12
+    )
+
+    error = abs(grid_result - scipy_result)
+
+    print(f"Our grid result: {grid_result:.10f}")
+    print(f"SciPy result:    {scipy_result:.10f}")
+    print(f"Absolute error:  {error:.2e}")
+    print(f"Required error:  1.00e-06")
+    print(f"Result: {'PASS' if error <= 1e-6 else 'CHECK'}")
+
+
+def verify_simulation_probability():
+    from scipy.stats import beta
+    from scipy.integrate import quad
+
+    print("\n=== SIMULATION PROBABILITY VERIFICATION ===")
+
+    # Results from the simulation with seed=0
+    x_A, n_A = 96, 1000
+    x_B, n_B = 118, 1000
+
+    a_A, b_A = my_beta_posterior(x_A, n_A)
+    a_B, b_B = my_beta_posterior(x_B, n_B)
+
+    grid_result = my_grid_probability(
+        a_A, b_A, a_B, b_B,
+        grid_size=10001
+    )
+
+    scipy_result, _ = quad(
+        lambda y: beta.pdf(y, a_B, b_B)
+                  * beta.cdf(y, a_A, b_A),
+        0, 1,
+        epsabs=1e-12,
+        limit=300,
+        points=[
+            a_A / (a_A + b_A),
+            a_B / (a_B + b_B)
+        ]
+    )
+
+    mc_result, mc_se = my_mc_probability(
+        a_A, b_A, a_B, b_B,
+        M=100000, seed=0
+    )
+
+    grid_error = abs(grid_result - scipy_result)
+    mc_error = abs(mc_result - scipy_result)
+
+    print(f"Grid probability:  {grid_result:.10f}")
+    print(f"SciPy probability: {scipy_result:.10f}")
+    print(f"Monte Carlo:       {mc_result:.10f}")
+    print(f"Monte Carlo SE:    {mc_se:.10f}")
+
+    print(f"\nGrid absolute error: {grid_error:.2e}")
+    print(f"MC difference / SE: {mc_error / mc_se:.3f}")
+
+    print(
+        "Grid verification:",
+        "PASS" if grid_error <= 1e-6 else "CHECK"
+    )
+    print(
+        "Monte Carlo verification:",
+        "PASS" if mc_error <= 3 * mc_se else "CHECK"
+    )
+
+
+
 if __name__ == "__main__":
     main()
     test_sample_sizes()
@@ -237,3 +416,7 @@ if __name__ == "__main__":
     plot_error_convergence()
     stress_test()
     check_assumptions()
+    test_null_rejection_rate()
+    test_overlapping_users()
+    verify_grid_integration()
+    verify_simulation_probability()
