@@ -6,10 +6,10 @@
 \usepackage{float}
 \usepackage[hidelinks]{hyperref}
 \usepackage{enumitem}
-\graphicspath{{../figures/}{figures/}}
+\graphicspath{{figures/}}
 
-\title{DS5020 Final Project -- Iteration 2\\[3pt]\large Bayesian A/B Testing: Mathematical Foundations, Data and Simulation}
-\author{Kamya Kanara \and Rishita \and Vaibhavi}
+\title{DS5020 Final Project -- Iterations 2 and 3\\[3pt]\large Bayesian A/B Testing: Mathematical Foundations, Implementation, and Verification}
+\author{Kamya Kanara \and Rishita Chawla \and Vaibhavi}
 \date{Fall 2026}
 
 \newtheorem{proposition}{Proposition}
@@ -22,7 +22,7 @@
 \begin{document}
 \maketitle
 \begin{abstract}
-This report develops the mathematical foundation for Bayesian A/B testing. We model a binary outcome in each group with a Binomial likelihood and a Beta prior, derive the Beta posterior and its moments, derive a Monte Carlo estimator for $P(p_B>p_A\mid\text{data})$ together with its standard error, and derive the pooled two-proportion $z$-test as a frequentist comparison. A known-truth simulation checks every derivation numerically, and the Cookie Cats randomized experiment is described as the real dataset. In the real data, \texttt{gate\_30} has higher observed retention than \texttt{gate\_40} for both day-one and day-seven outcomes; the day-seven difference is clear in both the Bayesian and frequentist analyses, while the day-one difference is not significant at the 5\% level.
+This report develops the mathematical foundation for Bayesian A/B testing and documents a from-scratch numerical implementation and independent verification in Iteration 3. We model a binary outcome in each group with a Binomial likelihood and a Beta prior, derive the Beta posterior and its moments, derive a Monte Carlo estimator for $P(p_B>p_A\mid\text{data})$ together with its standard error, and derive the pooled two-proportion $z$-test as a frequentist comparison. A known-truth simulation checks every derivation numerically, and the Cookie Cats randomized experiment is described as the real dataset. In the real data, \texttt{gate\_30} has higher observed retention than \texttt{gate\_40} for both day-one and day-seven outcomes; the day-seven difference is clear in both the Bayesian and frequentist analyses, while the day-one difference is not significant at the 5\% level.
 \end{abstract}
 
 \section{Project objective and scope}
@@ -48,6 +48,9 @@ $p_A^{(m)},p_B^{(m)}$ & $m$-th posterior draw for each group, $m=1,\dots,M$.\\
 $I_m$ & Indicator $\mathbb 1\{p_B^{(m)}>p_A^{(m)}\}\in\{0,1\}$.\\
 $q$ & The posterior probability $P(p_B>p_A\mid\text{data})\in[0,1]$.\\
 $\hat q$ & Monte Carlo estimate of $q$.\\
+$\mu_0$ & Prior mean $a/(a+b)$ for the Beta prior.\\
+$w$ & Data weight $n/(a+b+n)$ in the posterior-mean weighted average.\\
+$\alpha_{\mathrm{sig}}$ & Chosen significance level for a frequentist hypothesis test (here, $0.05$).\\
 $\hat p_{\mathrm{pool}}$ & Pooled proportion $(x_A+x_B)/(n_A+n_B)$.\\
 $SE_0$ & Null standard error of $\hat p_B-\hat p_A$.\\
 $z$ & Standardized test statistic; $\Phi$ is the standard normal CDF.\\
@@ -91,11 +94,11 @@ In the Cookie Cats data, one row is one player (one Bernoulli trial). Column \te
 \section{Assumptions}
 \begin{enumerate}[label=A\arabic*.]
 \item \textbf{Binary outcome.} Every trial is a 0/1 success indicator. If the outcome is miscoded or not binary the Binomial likelihood is wrong. \emph{Check:} the outcome columns have exactly two values (Table~\ref{tab:overview}).
-\item \textbf{Within-group independence.} Outcomes are independent within each arm. If players are repeated or clustered, the variance of $x_g$ exceeds $n_gp_g(1-p_g)$ and the posterior is too narrow. \emph{Check:} \texttt{userid} has no duplicates (0 found).
-\item \textbf{Common probability within an arm.} All players in arm $g$ share one $p_g$. If cohorts differ, $p_g$ is an average over cohorts and the Binomial variance is only approximate. \emph{Check (Iteration 3):} compare rates across available covariates such as \texttt{sum\_gamerounds} strata.
+\item \textbf{Within-group independence.} The Bernoulli outcomes are modeled as independent within each arm. A check for duplicate-free \texttt{userid}s (0 duplicates found) confirms that each player appears at most once, but it does not establish statistical independence; unobserved clustering or shared influences may remain. Dependence does not necessarily increase variance: its effect depends on the covariance structure, since $\Var(\sum_iY_i)=\sum_i\Var(Y_i)+2\sum_{i<j}\operatorname{Cov}(Y_i,Y_j)$. The independent-Bernoulli likelihood is therefore a modeling assumption, not a fact proved by the duplicate check.
+\item \textbf{Common probability within an arm.} The model treats players in arm $g$ as sharing one success probability $p_g$. If relevant player subgroups have different probabilities, $p_g$ is an aggregate rate and the simple Binomial model may be an approximation. \emph{Limitation:} \texttt{sum\_gamerounds} is measured after treatment assignment and may itself be affected by the assigned version; it cannot establish that the groups were comparable before treatment. Iteration 3 should examine genuinely pre-treatment covariates, if available, and treat post-assignment variables as outcomes or exploratory subgroup descriptors rather than baseline balance checks.
 \item \textbf{Random assignment, no interference.} Assignment is randomized and one player's version does not affect another's outcome; otherwise $p_B-p_A$ is confounded. \emph{Check:} the group sizes (44{,}700 vs.\ 45{,}489) differ by more than a fair 50/50 split would usually produce (sample-ratio test $z=2.63$, $p=0.0086$). This is a flag to investigate in Iteration 3 (for example, for differences in how installs were logged); it does not by itself show bias.
 \item \textbf{Independent arms.} No player is in both arms; otherwise $\Var(\hat p_B-\hat p_A)$ is not the sum of variances. \emph{Check:} unique \texttt{userid}s, each with one \texttt{version}.
-\item \textbf{Prior.} The $\Beta(a,b)$ prior has $a,b>0$ and is fixed before updating; with small $n$ the prior affects the posterior (weight $(a+b)/(a+b+n)$, Question~3). \emph{Check (Iteration 3):} repeat with other priors.
+\item \textbf{Prior.} Each arm has a $\Beta(a,b)$ prior with $a,b>0$, fixed before updating. The priors for $p_A$ and $p_B$ are assumed independent, so the joint prior factorizes as $\pi(p_A,p_B)=\pi(p_A)\pi(p_B)$. With small $n$ the prior affects the posterior (prior weight $(a+b)/(a+b+n)$, Question~3). \emph{Check (Iteration 3):} repeat with other prior choices and assess sensitivity.
 \item \textbf{Independent Monte Carlo draws.} The formula $\sqrt{q(1-q)/M}$ requires independent draws. \emph{Check:} draw directly from the Beta posteriors with a fixed seed and compare the empirical standard deviation of $\hat q$ with the formula (Section~\ref{sec:sim}).
 \item \textbf{Normal approximation.} The $z$-test needs large expected success and failure counts in both arms, roughly $n_g\hat p_{\rm pool}\ge10$ and $n_g(1-\hat p_{\rm pool})\ge10$; otherwise the normal tail probability is inaccurate. \emph{Check:} counts are in the hundreds or thousands in every cell here.
 \end{enumerate}
@@ -155,16 +158,41 @@ So the \emph{data weight} is $w=n/(a+b+n)$ and the \emph{prior weight} is $1-w=(
 \signoff{Rishita}{Kamya Kanara}
 
 \subsection{Question 4: Monte Carlo estimate is unbiased; its standard error}
-Let $p_A^{(m)},p_B^{(m)}$ ($m=1,\dots,M$) be independent draws from the two posteriors, $I_m=\mathbb 1\{p_B^{(m)}>p_A^{(m)}\}$, and $q=P(p_B>p_A\mid\text{data})$. Conditional on the data, the pairs are i.i.d., so the $I_m$ are i.i.d.\ Bernoulli with $\E[I_m]=P(p_B^{(m)}>p_A^{(m)}\mid\text{data})=q$ (expectation of an indicator is the probability of its event). Let $\hat q=M^{-1}\sum_mI_m$.
+Let $p_A^{(m)},p_B^{(m)}$ ($m=1,\dots,M$) be independent paired draws from the independent arm-specific posteriors, $I_m=\mathbb 1\{p_B^{(m)}>p_A^{(m)}\}$, and $q=P(p_B>p_A\mid\text{data})$. Define $\hat q=M^{-1}\sum_{m=1}^MI_m$.
 
-\emph{Unbiasedness.} By linearity of expectation, $\E[\hat q]=M^{-1}\sum_m\E[I_m]=M^{-1}\cdot Mq=q$.
-
-\emph{Variance.} Since $I_m^2=I_m$, $\E[I_m^2]=q$, so $\Var(I_m)=q-q^2=q(1-q)$. Because the $I_m$ are independent, the variance of the sum is the sum of the variances, and $\Var(cZ)=c^2\Var(Z)$:
+\begin{proposition}[Monte Carlo estimator for a posterior comparison]
+Conditional on the observed data, if the posterior draws are independent and identically distributed across $m$, then $\hat q$ is an unbiased estimator of $q$, with
 \[
-\Var(\hat q)=\frac1{M^2}\sum_{m=1}^M q(1-q)=\frac{q(1-q)}{M},\qquad
-SE(\hat q)=\sqrt{\frac{q(1-q)}M}\approx\sqrt{\frac{\hat q(1-\hat q)}M},
+\E[\hat q\mid\text{data}]=q,\qquad
+\Var(\hat q\mid\text{data})=\frac{q(1-q)}{M}.
 \]
-where the unknown $q$ is replaced by $\hat q$ (consistent by the law of large numbers). Hence $SE\propto M^{-1/2}$: quadrupling $M$ halves the error. (Independence of the draws is used in the variance step only; unbiasedness needs no independence.)
+Consequently, its Monte Carlo standard error is
+\[
+SE(\hat q)=\sqrt{\frac{q(1-q)}{M}}
+\approx \sqrt{\frac{\hat q(1-\hat q)}{M}}.
+\]
+\end{proposition}
+\begin{proof}
+For each draw index $m$, $I_m$ is an indicator of the event $p_B^{(m)}>p_A^{(m)}$. Therefore $I_m\mid\text{data}\sim\mathrm{Bernoulli}(q)$, since the expectation of an indicator equals the probability of its event. By linearity of conditional expectation,
+\[
+\E[\hat q\mid\text{data}]
+=\frac{1}{M}\sum_{m=1}^M\E[I_m\mid\text{data}]
+=\frac{1}{M}\sum_{m=1}^Mq=q.
+\]
+Thus $\hat q$ is unbiased. Also, $I_m^2=I_m$, so
+\[
+\Var(I_m\mid\text{data})
+=\E[I_m^2\mid\text{data}]-\E[I_m\mid\text{data}]^2
+=q-q^2=q(1-q).
+\]
+The draws are independent across $m$, hence the indicators are independent and their variances add. Using $\Var(cZ)=c^2\Var(Z)$ gives
+\[
+\Var(\hat q\mid\text{data})
+=\frac{1}{M^2}\sum_{m=1}^M q(1-q)
+=\frac{q(1-q)}{M}.
+\]
+Taking the square root gives the stated standard error. Since $q$ is unknown, replacing it by the consistent estimate $\hat q$ gives the reported plug-in Monte Carlo standard error. In particular, the standard error decreases at rate $M^{-1/2}$, so multiplying $M$ by four halves the standard error.
+\end{proof}
 \signoff{Vaibhavi}{Rishita}
 
 \subsection{Question 5: The pooled two-proportion \texorpdfstring{$z$}{z}-test}
@@ -300,7 +328,7 @@ $M$ & Empirical SD of $\hat q$ & $\sqrt{q(1-q)/M}$\\
 \textbf{What the simulation confirms, one derivation at a time.}
 \begin{itemize}[nosep]
 \item \emph{Q1--Q2 (likelihood, conjugacy):} both 95\% intervals from the $\Beta(1+x_g,\,1+n-x_g)$ posteriors contain the true rate, and the posterior means (0.0928, 0.1218) are close to 0.10 and 0.12.
-\item \emph{Q3 (moments, weighted average):} the direct mean and the weighted average $(1-w)\mu_0+w\hat p$ agree to 10 decimals, and the variance formula matches the sample variance of the draws to 3 significant figures.
+\item \emph{Q3 (moments, weighted average):} the direct mean and the weighted average $(1-w)\mu_0+w\hat p$ agree to 10 decimals, and the formula-based and sample variance estimates closely agree.
 \item \emph{Q4 (Monte Carlo):} $\hat q=0.98189$ is $0.57$ standard errors from the numerical-integral value $0.98213$, and the empirical SD of $\hat q$ follows $\sqrt{q(1-q)/M}$ across $M=100,1000,10000$ (Figure~\ref{fig:se}).
 \item \emph{Q5 ($z$-test):} the Type-I error 0.0425 is within 1.5 Monte Carlo SEs of 0.05, and the simulated power 0.321 is within about 2.2 SEs of the large-sample power 0.298; the test is under-powered at $n=1000$ for a 2-point difference.
 \end{itemize}
@@ -323,9 +351,311 @@ Each question above ends with its owner and checker; every member can explain ev
 \section{Conclusion}
 The known-truth simulation agrees with the Beta--Binomial update, the posterior moments, the weighted-average identity, the Monte Carlo estimator and its standard error, and the pooled $z$-test. In Cookie Cats, \texttt{gate\_30} has a slightly higher day-one retention rate; the evidence is not conclusive at 5\% ($p=0.074$). For day seven, \texttt{gate\_30} is higher and both analyses give strong evidence ($P(p_B>p_A\mid\text{data})=0.08\%$, $p=0.0016$). These results describe retention in this dataset and do not explain why the groups differ. The group sizes are somewhat unbalanced ($p=0.0086$ for a 50/50 split), so Iteration 3 should examine assignment and logging, prior sensitivity and player subgroups. The Bayesian posterior probability and the frequentist $p$-value should not be interchanged.
 
-\begin{thebibliography}{9}
-\bibitem{gelman2013} A.~Gelman, J.~B.~Carlin, H.~S.~Stern, D.~B.~Dunson, A.~Vehtari, D.~B.~Rubin. \emph{Bayesian Data Analysis}, 3rd ed., CRC Press, 2013 (Beta--Binomial conjugacy, Ch.~2).
-\bibitem{casella2002} G.~Casella and R.~L.~Berger. \emph{Statistical Inference}, 2nd ed., Duxbury, 2002 (central limit theorem, tests for proportions).
-\bibitem{cookiecats} Cookie Cats mobile-game A/B test, Kaggle dataset (\texttt{cookie\_cats.csv}).
-\end{thebibliography}
+
+
+\clearpage
+\part*{Iteration 3: Implementation and Numerical Verification}
+\addcontentsline{toc}{part}{Iteration 3: Implementation and Numerical Verification}
+
+\section{Iteration 3 Overview}
+
+Iteration 3 focuses on implementing the Bayesian A/B testing
+methods developed in Iteration 2, verifying their numerical
+accuracy, and evaluating their performance on simulated and
+real-world data.
+
+The main goal is to move beyond mathematical derivations
+and demonstrate that our methods work correctly in practice.
+We implement the core statistical calculations from scratch
+using NumPy and compare our results with established SciPy
+functions to check their accuracy.
+
+This report begins with a small worked example to show
+how Bayesian A/B testing works step by step. We calculate
+posterior distributions, posterior means and variances,
+the probability that one group performs better than the
+other, and a frequentist two-proportion z-test.
+
+Next, we use simulated data where the true conversion
+probabilities are known. This allows us to measure
+estimation errors, study how accuracy improves with
+larger sample sizes, and verify our calculations against
+independent numerical methods. We also examine a
+stress-test scenario in which users appear in both
+experimental groups, violating an important assumption.
+
+Finally, we apply the same methods to the Cookie Cats
+dataset, comparing 1-day and 7-day player retention
+between the two experimental groups. We examine data
+quality, verify the numerical results, and discuss
+the assumptions and limitations of our analysis.
+
+The report also includes the Iteration 3 mathematical
+questions, numerical verification tables, simulation
+results, an error convergence plot, team contributions
+and independent checking, and a final discussion of
+the findings.
+
+\subsection{Implementation Files}
+
+The implementation is organized into the following
+Python files:
+
+\begin{itemize}
+    \item \texttt{src/methods.py}: Implements the core
+    Bayesian and frequentist statistical methods.
+
+    \item \texttt{src/small\_example.py}: Demonstrates
+    the methods using a small numerical example.
+
+    \item \texttt{src/simulate.py}: Generates synthetic
+    A/B testing data with known probabilities.
+
+    \item \texttt{src/check\_simulation.py}: Evaluates
+    simulation accuracy, numerical verification,
+    convergence, and stress tests.
+
+    \item \texttt{src/run\_real.py}: Applies the methods
+    to the Cookie Cats dataset and checks data quality
+    and model assumptions.
+\end{itemize}
+
+
+% End here
+\section{Iteration 3 -- Math Questions}
+\subsection{Question 1: Posterior distributions, means, and variances}
+For the new worked example, group A has $x_A=3$ clicks in $n_A=10$ visits, and group B has $x_B=5$ clicks in $n_B=10$ visits. We use independent uniform priors $p_A,p_B\sim\Beta(1,1)$. By Beta--Binomial conjugacy,
+\begin{align*}
+p_A\mid x_A,n_A&\sim\Beta(1+3,1+10-3)=\boxed{\Beta(4,8)},\\
+p_B\mid x_B,n_B&\sim\Beta(1+5,1+10-5)=\boxed{\Beta(6,6)}.
+\end{align*}
+For $p\sim\Beta(\alpha,\beta)$,
+\[
+\E[p]=\frac{\alpha}{\alpha+\beta},\qquad
+\Var(p)=\frac{\alpha\beta}{(\alpha+\beta)^2(\alpha+\beta+1)}.
+\]
+Consequently,
+\begin{align*}
+\E[p_A\mid\text{data}]&=\frac4{12}=\boxed{\frac13\approx0.333333},&
+\Var(p_A\mid\text{data})&=\frac{4\cdot8}{12^2\cdot13}=\boxed{\frac{2}{117}\approx0.017094},\\
+\E[p_B\mid\text{data}]&=\frac6{12}=\boxed{\frac12=0.500000},&
+\Var(p_B\mid\text{data})&=\frac{6\cdot6}{12^2\cdot13}=\boxed{\frac1{52}\approx0.019231}.
+\end{align*}
+These exact fractions provide a hand-check of the posterior-moment implementation. The prior adds one pseudo-success and one pseudo-failure to each arm.
+
+\subsection{Question 2: Monte Carlo estimate of $P(p_B>p_A\mid\mathrm{data})$}
+Draw $M=100{,}000$ independent pairs $p_A^{(m)}\sim\Beta(4,8)$ and $p_B^{(m)}\sim\Beta(6,6)$. For $I_m=\mathbb{1}\{p_B^{(m)}>p_A^{(m)}\}$,
+\[
+\hat q=\frac1M\sum_{m=1}^M I_m,\qquad
+\widehat{SE}_{MC}=\sqrt{\frac{\hat q(1-\hat q)}M}.
+\]
+The seeded run returned
+\[
+\boxed{\hat q=0.805370},\qquad
+\boxed{\widehat{SE}_{MC}=0.001252}.
+\]
+Thus the posterior assigns approximately $80.5\%$ probability to B having the higher success probability. This is a posterior probability, not a frequentist $p$-value.
+
+\subsection{Question 3: Two-proportion $z$-test and interpretation}
+The observed rates are $\hat p_A=3/10=0.3$ and $\hat p_B=5/10=0.5$. Under $H_0:p_A=p_B$, the pooled rate is
+\[
+\hat p_{\mathrm{pool}}=\frac{3+5}{10+10}=0.4.
+\]
+The standard error under the null and test statistic are
+\begin{align*}
+SE_0&=\sqrt{0.4(0.6)\left(\frac1{10}+\frac1{10}\right)}=\sqrt{0.048}\approx0.219089,\\
+z&=\frac{0.5-0.3}{\sqrt{0.048}}=\boxed{0.912871}.
+\end{align*}
+The two-sided normal-approximation $p$-value is
+\[
+\boxed{p_{\mathrm{two\text{-}sided}}=2\bigl[1-\Phi(|z|)\bigr]\approx0.361310}.
+\]
+At $\alpha=0.05$ we do not reject equality of the proportions. This does not contradict the Bayesian $P(p_B>p_A\mid\text{data})\approx0.805$: the methods answer different questions. Because the example has only ten visits per arm, the normal approximation is also relatively rough; the assignment nevertheless requests this $z$-test.
+
+\subsection{Question 4: Independent grid integration}
+With independent posteriors, the exact target probability can be written as
+\[
+q=P(p_B>p_A\mid\text{data})
+=\int_0^1 f_B(y)\left[\int_0^y f_A(x)\,dx\right]dy
+=\int_0^1 f_B(y)F_A(y)\,dy.
+\]
+Our \texttt{my\_grid\_probability} evaluates Beta densities on a uniform grid and uses cumulative trapezoidal integration for $F_A$ followed by trapezoidal integration of $f_BF_A$. With 10,001 grid points, the result is $0.8065015429$. Independently, SciPy's adaptive quadrature gives $0.8065015480$:
+\begin{table}[H]\centering
+\caption{Small-example probability verification.}
+\begin{tabular}{lr}\toprule
+Method & $P(p_B>p_A\mid\mathrm{data})$\\\midrule
+Custom grid & 0.8065015429\\
+SciPy adaptive quadrature & 0.8065015480\\
+Monte Carlo ($M=100{,}000$) & 0.8053700000\\
+Absolute grid--quadrature difference & $5.04\times10^{-9}$\\
+Monte Carlo SE & 0.001252\\
+Monte Carlo discrepancy / SE & 0.904\\\bottomrule
+\end{tabular}
+\end{table}
+The grid--quadrature error is below $10^{-6}$; the Monte Carlo result is within three estimated standard errors of the quadrature result.
+
+\subsection{Question 5: Cookie Cats real-data analysis and data checks}
+The real dataset is \texttt{data/cookie\_cats.csv}. We define A as \texttt{gate\_30} and B as \texttt{gate\_40}. Each \texttt{userid} is checked for duplicate rows and membership in more than one group; both counts are zero. There are no missing values in the required fields, and both retention columns contain binary outcomes.
+\begin{table}[H]\centering
+\caption{Real-data integrity and allocation.}
+\begin{tabular}{lr}\toprule
+Check & Result\\\midrule
+Total observations & 90,189\\
+Group A: \texttt{gate\_30} & 44,700\\
+Group B: \texttt{gate\_40} & 45,489\\
+A/B group-size ratio & 0.9827\\
+Duplicate user IDs & 0\\
+Users appearing in both groups & 0\\
+Missing required values & 0\\\bottomrule
+\end{tabular}
+\end{table}
+The assignment's Bayesian, Monte Carlo, credible-interval, and two-proportion $z$-test methods were applied separately to day-one and day-seven retention.
+\begin{table}[H]\centering\small
+\caption{Iteration 3 Cookie Cats results (B minus A).}
+\begin{tabular}{lrr}\toprule
+Quantity & Day 1 & Day 7\\\midrule
+A retained / total & 20,034 / 44,700 & 8,502 / 44,700\\
+B retained / total & 20,119 / 45,489 & 8,279 / 45,489\\
+Observed rate A & 0.448188 & 0.190201\\
+Observed rate B & 0.442283 & 0.182000\\
+Posterior mean A & 0.448190 & 0.190215\\
+Posterior mean B & 0.442285 & 0.182014\\
+Posterior variance A & 0.00000553 & 0.00000345\\
+Posterior variance B & 0.00000542 & 0.00000327\\
+MC $P(p_B>p_A\mid\mathrm{data})$ & 0.037000 & 0.000890\\
+MC standard error & 0.000597 & 0.000094\\
+95\% credible interval for $p_B-p_A$ & $[-0.012376,\ 0.000577]$ & $[-0.013288,\ -0.003113]$\\
+Two-proportion $z$ & $-1.784086$ & $-3.164359$\\
+Two-sided $p$-value & 0.074410 & 0.001554\\\bottomrule
+\end{tabular}
+\end{table}
+For day one, the two-sided $p$-value exceeds 0.05 and the credible interval for B--A crosses zero. For day seven, the $p$-value is below 0.05 and the interval is entirely negative, favoring A (\texttt{gate\_30}). The observed differences are associations within the randomized experiment and do not by themselves identify a mechanism.
+
+\section{Implementation and independent numerical verification}
+\subsection{From-scratch methods and library comparisons}
+The custom posterior update computes $(\alpha,\beta)=(a+x,b+n-x)$, and the custom posterior-moment function evaluates the closed-form mean and variance. The Monte Carlo routine samples independent Beta posteriors, estimates the fraction of draws with $p_B>p_A$, and reports the Bernoulli Monte Carlo SE. The grid routine uses NumPy-based numerical integration; the $z$-test computes the pooled null standard error and two-sided normal-tail probability. A separate function draws posterior samples to estimate a 95\% credible interval for $p_B-p_A$. SciPy is not used to implement these core routines.
+
+\begin{table}[H]\centering\small
+\caption{Independent checks on the real-data posterior and probability calculations.}
+\begin{tabular}{llrr}\toprule
+Outcome & Quantity & Custom result & SciPy result\\\midrule
+Day 1 & Mean A & 0.44819024 & 0.44819024\\
+Day 1 & Mean B & 0.44228529 & 0.44228529\\
+Day 1 & $P(p_B>p_A)$ (MC vs quad) & 0.037000 & 0.037206\\
+Day 7 & Mean A & 0.19021520 & 0.19021520\\
+Day 7 & Mean B & 0.18201402 & 0.18201402\\
+Day 7 & $P(p_B>p_A)$ (MC vs quad) & 0.000890 & 0.000777\\\bottomrule
+\end{tabular}
+\end{table}
+The reported absolute errors for all four real-data posterior means and variances versus SciPy were zero at the printed precision. The Monte Carlo--quadrature discrepancies were $0.345$ SE (day one) and $1.195$ SE (day seven), both within three SE. These Monte Carlo discrepancies are sampling error, not machine-precision agreement.
+
+\subsection{Simulation with known truth}
+The Iteration 3 simulation retains the Iteration 2 model and settings: $p_A=0.10$, $p_B=0.12$, $n_A=n_B=1000$, and seed 0. The current generator draws the two Bernoulli outcome vectors with NumPy and obtains $x_A=96$ and $x_B=118$. Therefore,
+\[
+\begin{array}{ll}
+\E[p_A\mid\mathrm{data}]=97/1002=0.09680639,&
+\E[p_B\mid\mathrm{data}]=119/1002=0.11876248,\\
+|\E[p_A\mid\mathrm{data}]-0.10|=0.003194,&
+|\E[p_B\mid\mathrm{data}]-0.12|=0.001238.
+\end{array}
+\]
+The current simulation's Monte Carlo estimate is $P(p_B>p_A\mid\mathrm{data})\approx0.943500$, with SE $0.000730$. The posterior means and variances agree with SciPy's \texttt{beta.mean} and \texttt{beta.var} at printed precision.
+
+\textbf{Reproducibility note.} The retained Iteration 2 report records $x_A=92$ and $x_B=121$ for its simulation, while the current Iteration 3 script produces 96 and 118. The model, parameter values, sample sizes, and nominal seed are unchanged, but the sample realizations differ. This can occur when the random-number generator or its sequence of calls differs; the exact historical cause has not been independently established. Accordingly, the two iterations' simulated posterior values should not be compared as if they were computed from the same realized dataset.
+
+\subsection{Grid, quadrature, and Monte Carlo verification on simulation}
+For the current simulated posteriors, the independent comparison is
+\begin{table}[H]\centering
+\caption{Known-truth simulation probability verification.}
+\begin{tabular}{lr}\toprule
+Method or diagnostic & Result\\\midrule
+Custom grid ($10{,}001$ points) & 0.9439498682\\
+SciPy adaptive quadrature & 0.9439506518\\
+Custom Monte Carlo ($100{,}000$ draws) & 0.9435000000\\
+Monte Carlo SE & 0.0007301216\\
+Grid absolute error & $7.84\times10^{-7}$\\
+Monte Carlo discrepancy / SE & 0.617\\\bottomrule
+\end{tabular}
+\end{table}
+The grid error is less than the specified $10^{-6}$ tolerance, and the Monte Carlo estimate lies within three SE of both the grid and SciPy quadrature values. The grid result passes the stated tolerance but is closer to the threshold than in the small example.
+
+\subsection{Sample-size scaling and error-convergence plot}
+The simulation was run at multiple sample sizes. The single-realization posterior-mean absolute errors and the RMSE over 200 replications are distinct diagnostics; the latter is more stable for assessing convergence.
+\begin{table}[H]\centering\small
+\caption{Error convergence over 200 independent repetitions per sample size.}
+\begin{tabular}{rrr}\toprule
+$n$ per group & RMSE of A posterior mean & RMSE of B posterior mean\\\midrule
+100 & 0.028575 & 0.033105\\
+300 & 0.016789 & 0.018140\\
+1,000 & 0.009488 & 0.009910\\
+3,000 & 0.005472 & 0.005648\\
+10,000 & 0.002887 & 0.003088\\\bottomrule
+\end{tabular}
+\end{table}
+Both errors generally decrease with sample size, consistent with the $O(n^{-1/2})$ scale of binomial sampling uncertainty. The log--log plot was generated by \texttt{src/check\_simulation.py} and saved as \texttt{src/error\_convergence.png}.
+\begin{figure}[H]\centering
+\IfFileExists{figures/error_convergence.png}{\includegraphics[width=0.82\textwidth]{figures/error_convergence.png}}{\fbox{\parbox{0.8\textwidth}{\centering Upload \texttt{src/error\_convergence.png} to Overleaf as \texttt{figures/error\_convergence.png}.}}}
+\caption{Iteration 3 log--log error-convergence experiment (200 replications per sample size).}\label{fig:iter3convergence}
+\end{figure}
+
+\subsection{Null rejection-frequency check}
+To verify the frequentist test under the null, we generated 1,000 experiments with $p_A=p_B=0.10$, $n_A=n_B=1000$, and a fixed generator seed of 0. We rejected $H_0$ when the two-sided $p$-value was below 0.05. There were 49 rejections:
+\[
+\widehat{P}(\mathrm{reject}\mid H_0)=\frac{49}{1000}=\boxed{0.049=4.9\%}.
+\]
+The result is within the assignment's $5\%\pm1.4\%$ acceptance range ($3.6\%$ to $6.4\%$). It is an empirical calibration check, not proof that the test is valid under every data-generating process.
+
+\subsection{Stress tests and overlapping users}
+The implementation also tested zero successes in both arms, all successes in both arms, and extreme arm differences; posterior calculations remained finite, with approximately 0.5 posterior superiority probability for the symmetric cases and approximately 1.0 for the extreme difference.
+
+The required assumption-violation test assigned 1,000 records to each arm but deliberately reused 100 user IDs across both arms, yielding 10\% overlap relative to each arm. The duplicate-assignment check correctly failed. If the two arms are nevertheless treated as independent, the resulting naive two-proportion test reported $z=1.591439$ and two-sided $p=0.111511$.
+
+\textbf{Interpretation and limitation.} The overlap invalidates the clean disjoint-group assignment design. In the current stress-test code, outcomes for the reused IDs are generated independently in each arm; therefore, the example establishes a user-assignment violation but does \emph{not} measure a covariance-induced bias or change in the true sampling variance. With correlated repeated-user outcomes, an independent-arm standard error may be miscalibrated. The correct remedy depends on the experiment design: prevent cross-arm assignment, or use an analysis that explicitly models repeated/paired observations.
+
+\section{Assumption checks and limitations}
+\begin{itemize}[nosep]
+\item \textbf{Simulation:} Positive group sizes, valid binary success counts, and positive Beta prior parameters passed. Independent Bernoulli outcomes and fixed probabilities are specified by the simulation generator; random assignment of a shared user pool is not explicitly modeled in the baseline simulation.
+\item \textbf{Real data:} All 90,189 rows had the required fields; user IDs were unique, no users appeared in both groups, and day-one/day-seven outcomes were binary. Group sizes were 44,700 and 45,489 (A/B ratio 0.9827).
+\item \textbf{Not directly verifiable from the CSV:} independence between distinct users, actual randomization procedures, stable within-arm success probabilities, and absence of unrecorded repeated exposure. The group-size imbalance noted in Iteration 2 remains a design/logging question, not proof of a particular failure.
+\item \textbf{Inference:} The uniform $\Beta(1,1)$ prior is a modeling choice. Day-one and day-seven outcomes are analyzed separately; they are measured on the same users and should not be interpreted as independent experiments.
+\end{itemize}
+
+\section{Reproducibility and deliverables}
+Run the following commands from the repository root after installing NumPy, pandas, SciPy, and Matplotlib:
+\begin{verbatim}
+python src/small_example.py
+python src/check_simulation.py
+python src/run_real.py
+\end{verbatim}
+The code and the convergence image are on GitHub branch \texttt{iteration3}, commit \texttt{530a4e1}. The convergence image must also be uploaded to the Overleaf \texttt{figures/} folder for inclusion in the compiled PDF. The repository README should list the commands above and the Python dependencies. Each student should submit the required GitHub and read-only Overleaf links as instructed in the assignment.
+
+\section{Iteration 3 team leadership, ownership, and checking}
+\textbf{Project leader: Rishita Chawla.} Leadership rotated from Kamya Kanara in Iteration 2 to Rishita Chawla in Iteration 3. The leader coordinates progress, makes sure the numerical checks and report are complete, and helps the team prepare its final submission. Leadership is separate from individual ownership of each mathematical derivation or code component.
+
+The assignment requires each team member to own mathematics and code and to have another team member independently check the work. The final owner--checker assignments must match the team's updated Excel project plan. They have not been confirmed in the material available for this report, so the table below is a completion checklist rather than a claim that specific members performed the checks.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{p{0.48\textwidth}p{0.18\textwidth}p{0.18\textwidth}}
+\toprule
+\textbf{Iteration 3 work} & \textbf{Owner} & \textbf{Independent checker}\\
+\midrule
+Worked example and mathematical answers & Rishita &  Kamya\\
+Core Bayesian and frequentist methods & Kamya & Vaibhavi\\
+Simulation, convergence, and stress tests & Rishita & Vaibhavi\\
+Cookie Cats analysis and numerical verification & Rishita & Vaibhavi\\
+Overleaf report and reproducibility review & Vaibhavi & Rishita\\
+\bottomrule
+\end{tabular}
+\caption{Iteration 3 task ownership and checking}
+\end{table}
+
+
+\section{Iteration 3 conclusion}
+The from-scratch Beta posterior, posterior moments, Monte Carlo probability, grid integration, credible interval, and two-proportion $z$-test were applied to a small example, known-truth simulation, and real Cookie Cats retention data. The small-example grid agreed with adaptive quadrature within $5.04\times10^{-9}$, and the known-truth simulation grid agreed within $7.84\times10^{-7}$; both satisfy the $10^{-6}$ criterion. Monte Carlo results were within three estimated standard errors of the independent numerical reference. Under 1,000 null simulations, the $z$-test rejected 4.9\% of the time, inside the required acceptance range. A 10\% overlapping-user stress test correctly exposed an assignment-design violation. On Cookie Cats, the day-one difference was not significant in the two-sided $z$-test, whereas day-seven retention favored \texttt{gate\_30}. These findings validate the reported numerical implementation under the tested conditions while retaining the design and modeling caveats above.
+
+\nocite{*}
+\bibliographystyle{plain}
+\bibliography{references}
 \end{document}
