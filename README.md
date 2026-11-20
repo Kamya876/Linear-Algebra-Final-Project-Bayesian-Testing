@@ -5,16 +5,29 @@
 
 Bayesian A/B testing using the Beta–Binomial model, Monte Carlo estimation, numerical integration, and the two-proportion z-test. The project includes a worked example, simulations, numerical verification, and analysis of the Cookie Cats dataset.
 
+
 ## Folder Structure
 
 ```text
-├── data/           Cookie Cats dataset
-├── docs/           Reports, project plan, results
-├── figures/        Iteration 2 plots
-├── src/            Python implementations and tests
+├── data/
+│   └── cookie_cats.csv
+├── docs/
+│   ├── Iteration2_Report_Bayesian_AB_Testing.pdf
+│   │   # Iteration 2 report
+│   ├── Iteration2and3_Report_Bayesian_AB_Testing.pdf
+│   │   # Combined Iteration 2 & 3 report
+│   ├── Project_Plan_Iterations_2_and_3.xlsx
+│   │   # Combined Iteration 2 & 3 project plan
+│   ├── main.tex
+│   │   # LaTeX source
+│   └── *.csv
+│       # Simulation and real-data results
+├── figures/        # Iteration 2 plots and error_convergence plot from iteration 3
+├── src/            # Python scripts and verification tests
 ├── requirements.txt
 └── README.md
 ```
+
 
 ## Setup
 
