@@ -1,0 +1,17 @@
+Data,Quantity,Compared with,Difference,Pass?
+Real data (retention_1),posterior means/variances,scipy.stats.beta,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Real data (retention_1),P(B>A) grid,scipy.integrate.quad,max|diff| = 4.2e-08 (tol 1e-06),PASS
+Real data (retention_1),P(B>A) Monte Carlo,scipy.integrate.quad,0.35 SE (limit 3),PASS
+Real data (retention_1),z and p-value,scipy chi2_contingency,max|diff| = 1.9e-14 (tol 1e-10),PASS
+Real data (retention_1),95% interval for pB-pA (MC),exact CDF root-finding,max|diff| = 1.6e-05 (tol 6e-05),PASS
+Real data (retention_1),"P(B>A) under 4 priors, Beta(1,1) ... Beta(200,200)",each other,range 0.0005 (prior has little influence if small),PASS
+Real data (retention_7),posterior means/variances,scipy.stats.beta,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Real data (retention_7),P(B>A) grid,scipy.integrate.quad,max|diff| = 2.9e-09 (tol 1e-06),PASS
+Real data (retention_7),P(B>A) Monte Carlo,scipy.integrate.quad,1.19 SE (limit 3),PASS
+Real data (retention_7),z and p-value,scipy chi2_contingency,max|diff| = 9.3e-15 (tol 1e-10),PASS
+Real data (retention_7),95% interval for pB-pA (MC),exact CDF root-finding,max|diff| = 8.7e-06 (tol 5e-05),PASS
+Real data (retention_7),"P(B>A) under 4 priors, Beta(1,1) ... Beta(200,200)",each other,range 0.0000 (prior has little influence if small),PASS
+Real data,"data-quality checks (binary, no missing, unique ids, no overlap)",required,all pass,PASS
+Real data,sample-ratio z^2 and p-value,scipy.stats.chisquare,max|diff| = 1.8e-15 (tol 1e-09),PASS
+Real data (retention_1),A8 min expected count n_g*p_pool,>= 10,19901,PASS
+Real data (retention_7),A8 min expected count n_g*p_pool,>= 10,8317,PASS

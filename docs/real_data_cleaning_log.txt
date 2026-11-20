@@ -1,0 +1,9 @@
+1. Loaded cookie_cats.csv: 90189 rows, columns ['userid', 'version', 'sum_gamerounds', 'retention_1', 'retention_7'].
+2. Missing values in the four analysis columns: 0; rows removed: 0.
+3. Duplicate userids: 0; rows removed: 0.
+4. Users appearing in both groups: 0; rows removed: 0 (reported only).
+5. Rows with a version other than gate_30 / gate_40: 0; rows removed: 0.
+6. retention_1 and retention_7 converted from True/False to 1/0 (no rows changed).
+7. sum_gamerounds is NOT used in the retention analysis; 1 player(s) with more than 10,000 rounds were kept (no outlier removal is needed for a binary outcome).
+8. Train/test split: none. The Bayesian posterior and the z-test use all rows because the analysis estimates a parameter of a randomized experiment; it is not a predictive model.
+Final analysis set: 90189 rows.

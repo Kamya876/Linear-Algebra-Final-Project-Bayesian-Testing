@@ -1,0 +1,46 @@
+Data,Quantity,Compared with,Difference,Pass?
+Small example,"posterior means A,B",exact fractions,max|diff| = 0.0e+00 (tol 1e-15),PASS
+Small example,"posterior variances A,B",exact fractions,max|diff| = 0.0e+00 (tol 1e-15),PASS
+Small example,posterior means/variances,scipy.stats.beta,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Small example,weighted-average posterior mean A,direct posterior mean,max|diff| = 0.0e+00 (tol 1e-15),PASS
+Small example,z^2,exact fraction 5/6,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Small example,z and p-value,scipy chi2_contingency,max|diff| = 1.7e-16 (tol 1e-10),PASS
+Small example,"posterior integrates to 1 (A, B)",1,max|diff| = 2.0e-15 (tol 1e-06),PASS
+Small example,P(B>A) grid,scipy.integrate.quad,max|diff| = 5.0e-09 (tol 1e-06),PASS
+Small example,P(B>A) Monte Carlo,scipy.integrate.quad,0.90 SE (limit 3),PASS
+Simulation (n=1000),posterior mean p_A,true p_A,0.78 SE (limit 3),PASS
+Simulation (n=1000),posterior mean p_B,true p_B,0.17 SE (limit 3),PASS
+Simulation (n=1000),weighted-average posterior mean,direct posterior mean,max|diff| = 2.8e-17 (tol 1e-15),PASS
+Simulation (n=1000),posterior means/variances,scipy.stats.beta,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Simulation (n=1000),P(B>A) grid,scipy.integrate.quad,max|diff| = 4.0e-07 (tol 1e-06),PASS
+Simulation (n=1000),P(B>A) Monte Carlo,scipy.integrate.quad,0.57 SE (limit 3),PASS
+Simulation (n=1000),z and p-value,scipy chi2_contingency,max|diff| = 7.6e-17 (tol 1e-10),PASS
+Simulation (n=1000),95% interval for pB-pA (MC),exact CDF root-finding,max|diff| = 8.6e-05 (tol 3e-04),PASS
+Simulation (n=1000),"log-log slope of RMSE vs n (A, B)",theory -1/2,"slopes -0.511, -0.498 (allowed [-0.6, -0.4])",PASS
+Simulation (n=1000),seed-0 error at every n,3 posterior SDs,max 1.38 SD (limit 3),PASS
+Simulation (n=1000),"empirical SD of q_hat (M = 100, 1000, 10000)",sqrt(q(1-q)/M),worst relative gap 2.9% (limit 15%),PASS
+Simulation (n=1000),z-test false-positive rate (1000 runs),0.05 +/- 0.014,0.049,PASS
+Simulation (stress test),"degenerate counts 0/100, 100/100, 1/100 vs 99/100",valid probabilities,posterior stays valid; z-test raises an error when SE0 = 0,PASS
+Simulation (stress test),"SD(pB-pA) / naive SE, 0% overlap",theory sqrt(1-overlap) = 1.000,1.001 (rel. 0.1%),PASS
+Simulation (stress test),"z-test false-positive rate, 0% overlap",theory 2(1-Phi(1.96/ratio)),0.37 SE (limit 3),PASS
+Simulation (stress test),"SD(pB-pA) / naive SE, 10% overlap",theory sqrt(1-overlap) = 0.949,0.941 (rel. 0.8%),PASS
+Simulation (stress test),"z-test false-positive rate, 10% overlap",theory 2(1-Phi(1.96/ratio)),0.95 SE (limit 3),PASS
+Simulation (stress test),"SD(pB-pA) / naive SE, 50% overlap",theory sqrt(1-overlap) = 0.707,0.709 (rel. 0.3%),PASS
+Simulation (stress test),"z-test false-positive rate, 50% overlap",theory 2(1-Phi(1.96/ratio)),0.17 SE (limit 3),PASS
+Simulation (n=1000),"assumption checks A1, A4, A5, A6, A8",hold by construction,min expected count 106; SRM p = 1.00,PASS
+Real data (retention_1),posterior means/variances,scipy.stats.beta,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Real data (retention_1),P(B>A) grid,scipy.integrate.quad,max|diff| = 4.2e-08 (tol 1e-06),PASS
+Real data (retention_1),P(B>A) Monte Carlo,scipy.integrate.quad,0.35 SE (limit 3),PASS
+Real data (retention_1),z and p-value,scipy chi2_contingency,max|diff| = 1.9e-14 (tol 1e-10),PASS
+Real data (retention_1),95% interval for pB-pA (MC),exact CDF root-finding,max|diff| = 1.6e-05 (tol 6e-05),PASS
+Real data (retention_1),"P(B>A) under 4 priors, Beta(1,1) ... Beta(200,200)",each other,range 0.0005 (prior has little influence if small),PASS
+Real data (retention_7),posterior means/variances,scipy.stats.beta,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Real data (retention_7),P(B>A) grid,scipy.integrate.quad,max|diff| = 2.9e-09 (tol 1e-06),PASS
+Real data (retention_7),P(B>A) Monte Carlo,scipy.integrate.quad,1.19 SE (limit 3),PASS
+Real data (retention_7),z and p-value,scipy chi2_contingency,max|diff| = 9.3e-15 (tol 1e-10),PASS
+Real data (retention_7),95% interval for pB-pA (MC),exact CDF root-finding,max|diff| = 8.7e-06 (tol 5e-05),PASS
+Real data (retention_7),"P(B>A) under 4 priors, Beta(1,1) ... Beta(200,200)",each other,range 0.0000 (prior has little influence if small),PASS
+Real data,"data-quality checks (binary, no missing, unique ids, no overlap)",required,all pass,PASS
+Real data,sample-ratio z^2 and p-value,scipy.stats.chisquare,max|diff| = 1.8e-15 (tol 1e-09),PASS
+Real data (retention_1),A8 min expected count n_g*p_pool,>= 10,19901,PASS
+Real data (retention_7),A8 min expected count n_g*p_pool,>= 10,8317,PASS

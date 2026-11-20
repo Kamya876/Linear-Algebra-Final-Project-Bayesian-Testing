@@ -1,0 +1,4 @@
+overlap_users,users_in_both_arms,sd_ratio_empirical,sd_ratio_theory,false_pos_empirical,false_pos_theory
+0,0,1.00082,1.00000,0.04920,0.05000
+100,100,0.94111,0.94868,0.03700,0.03883
+500,500,0.70907,0.70711,0.00570,0.00557

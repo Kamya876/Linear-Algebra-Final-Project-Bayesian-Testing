@@ -1,0 +1,10 @@
+Data,Quantity,Compared with,Difference,Pass?
+Small example,"posterior means A,B",exact fractions,max|diff| = 0.0e+00 (tol 1e-15),PASS
+Small example,"posterior variances A,B",exact fractions,max|diff| = 0.0e+00 (tol 1e-15),PASS
+Small example,posterior means/variances,scipy.stats.beta,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Small example,weighted-average posterior mean A,direct posterior mean,max|diff| = 0.0e+00 (tol 1e-15),PASS
+Small example,z^2,exact fraction 5/6,max|diff| = 0.0e+00 (tol 1e-12),PASS
+Small example,z and p-value,scipy chi2_contingency,max|diff| = 1.7e-16 (tol 1e-10),PASS
+Small example,"posterior integrates to 1 (A, B)",1,max|diff| = 2.0e-15 (tol 1e-06),PASS
+Small example,P(B>A) grid,scipy.integrate.quad,max|diff| = 5.0e-09 (tol 1e-06),PASS
+Small example,P(B>A) Monte Carlo,scipy.integrate.quad,0.90 SE (limit 3),PASS

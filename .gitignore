@@ -5,3 +5,6 @@ data/*.csv
 *.aux
 *.log
 *.out
+*.toc
+*.bbl
+*.blg

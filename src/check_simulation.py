@@ -1,422 +1,275 @@
+"""Iteration 3 -- simulation test: recover the known truth (Project 7).
 
-from simulate import simulate_ab_test
-from methods import (
-    my_beta_posterior,
-    my_posterior_stats,
-    my_mc_probability,
-    my_grid_probability
-)
-from methods import my_z_test
-from scipy.stats import beta
-import numpy as np
-import matplotlib.pyplot as plt
+Model, parameters and seed are the Iteration 2 ones: p_A = 0.10, p_B = 0.12,
+n = 1000 per group, Beta(1,1) priors, seed 0 (so x_A = 92, x_B = 121).
 
-def main():
-    # Generate simulated data
-    x_A, n_A, x_B, n_B = simulate_ab_test()
+Contents
+  1. main run vs truth and vs SciPy (posterior, grid, Monte Carlo, z-test, credible interval)
+  2. error vs n on log-log axes, with a fitted slope
+  3. Monte Carlo SE check (assumption A7)
+  4. null rejection frequency of the z-test (5% +/- 1.4%)
+  5. stress tests: degenerate counts, prior sensitivity, users in both arms
+  6. assumption checks on the simulated data (they hold by construction)
 
-    # Calculate Beta posteriors
-    a_A, b_A = my_beta_posterior(x_A, n_A)
-    a_B, b_B = my_beta_posterior(x_B, n_B)
+Run:  python src/check_simulation.py
+"""
+import sys
+from math import erfc, sqrt
+from pathlib import Path
 
-    # Calculate posterior means and variances
-    mean_A, var_A = my_posterior_stats(a_A, b_A)
-    mean_B, var_B = my_posterior_stats(a_B, b_B)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-    # Calculate probability B is better than A
-    mc_prob, mc_se = my_mc_probability(
-        a_A, b_A, a_B, b_B,
-        M=100000, seed=0
-    )
+import matplotlib
 
-    print("=== SIMULATION VERIFICATION ===")
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 
-    print(f"Group A: {x_A}/{n_A}")
-    print(f"Group B: {x_B}/{n_B}")
+from library_checks import (lib_ci_endpoint_tolerance, lib_credible_interval,  # noqa: E402
+                            lib_posterior_stats, lib_prob_b_greater_a, lib_z_test)
+from methods import (my_beta_posterior, my_credible_interval, my_grid_probability,  # noqa: E402
+                     my_mc_probability, my_normal_approx_min_count, my_posterior_stats,
+                     my_srm_test, my_weighted_posterior_mean, my_z_test)
+from simulate import P_A_TRUE, P_B_TRUE, simulate_ab, simulate_shared_users  # noqa: E402
+from verify import DOCS, FIGS, VerificationLog, report  # noqa: E402
 
-    print("\n=== POSTERIOR RESULTS ===")
-    print(f"Posterior mean A: {mean_A:.6f}")
-    print(f"Posterior mean B: {mean_B:.6f}")
-
-    print("\n=== COMPARISON WITH TRUE VALUES ===")
-    print(f"Error A: {abs(mean_A - 0.10):.6f}")
-    print(f"Error B: {abs(mean_B - 0.12):.6f}")
-
-    print("\n=== BAYESIAN PROBABILITY ===")
-    print(f"P(B > A): {mc_prob:.6f}")
-    print(f"Monte Carlo SE: {mc_se:.6f}")
-
-def test_sample_sizes():
-    print("\n=== SAMPLE SIZE COMPARISON ===")
-
-    sample_sizes = [100, 1000, 10000]
-
-    for n in sample_sizes:
-        x_A, n_A, x_B, n_B = simulate_ab_test(
-            n_A=n, n_B=n,
-            p_A=0.10, p_B=0.12, seed=0
-        )
-
-        a_A, b_A = my_beta_posterior(x_A, n_A)
-        a_B, b_B = my_beta_posterior(x_B, n_B)
-
-        mean_A, _ = my_posterior_stats(a_A, b_A)
-        mean_B, _ = my_posterior_stats(a_B, b_B)
-
-        error_A = abs(mean_A - 0.10)
-        error_B = abs(mean_B - 0.12)
-
-        print(f"\nSample size: {n}")
-        print(f"Posterior mean A: {mean_A:.6f}")
-        print(f"Posterior mean B: {mean_B:.6f}")
-        print(f"Error A: {error_A:.6f}")
-        print(f"Error B: {error_B:.6f}")
+DATA = "Simulation (n=1000)"
 
 
-def verify_with_scipy():
-    print("\n=== SCIPY LIBRARY VERIFICATION ===")
-
-    x_A, n_A, x_B, n_B = simulate_ab_test()
-
-    a_A, b_A = my_beta_posterior(x_A, n_A)
-    a_B, b_B = my_beta_posterior(x_B, n_B)
-
-    # Our implementation
-    mean_A, var_A = my_posterior_stats(a_A, b_A)
-    mean_B, var_B = my_posterior_stats(a_B, b_B)
-
-    # SciPy reference implementation
-    scipy_mean_A = beta.mean(a_A, b_A)
-    scipy_var_A = beta.var(a_A, b_A)
-
-    scipy_mean_B = beta.mean(a_B, b_B)
-    scipy_var_B = beta.var(a_B, b_B)
-
-    print(f"{'Metric':<20} {'Ours':<15} {'SciPy':<15} {'Error':<15}")
-
-    results = [
-        ("Mean A", mean_A, scipy_mean_A),
-        ("Variance A", var_A, scipy_var_A),
-        ("Mean B", mean_B, scipy_mean_B),
-        ("Variance B", var_B, scipy_var_B)
-    ]
-
-    for name, ours, reference in results:
-        error = abs(ours - reference)
-
-        print(
-            f"{name:<20} "
-            f"{ours:<15.8f} "
-            f"{reference:<15.8f} "
-            f"{error:<15.2e}"
-        )
+def posterior_pair(x_A, n_A, x_B, n_B, a=1.0, b=1.0):
+    return my_beta_posterior(x_A, n_A, a, b), my_beta_posterior(x_B, n_B, a, b)
 
 
-def plot_error_convergence():
-    print("\n=== ERROR CONVERGENCE TEST ===")
+# ---------------------------------------------------------------------------
+def main_run(log):
+    print("\n=== 1. MAIN RUN (n = 1000, seed 0) ===")
+    (x_A, n_A, x_B, n_B), truth = simulate_ab(n=1000, seed=0)
+    print(f"x_A = {x_A}/{n_A}, x_B = {x_B}/{n_B}   (Iteration 2 report: 92 and 121)")
+    assert (x_A, x_B) == (92, 121), "Iteration 3 simulation no longer matches Iteration 2"
+    (a_A, b_A), (a_B, b_B) = posterior_pair(x_A, n_A, x_B, n_B)
+    m_A, v_A = my_posterior_stats(a_A, b_A)
+    m_B, v_B = my_posterior_stats(a_B, b_B)
 
-    sample_sizes = [100, 300, 1000, 3000, 10000]
-    repetitions = 200
+    # vs truth: within 3 posterior standard deviations
+    for name, mean, var, true in (("A", m_A, v_A, truth["p_A"]), ("B", m_B, v_B, truth["p_B"])):
+        log.within_se(DATA, f"posterior mean p_{name}", f"true p_{name}", mean, true, sqrt(var))
+    # weighted-average identity (Question 3)
+    log.compare(DATA, "weighted-average posterior mean", "direct posterior mean",
+                [my_weighted_posterior_mean(x_A, n_A), my_weighted_posterior_mean(x_B, n_B)],
+                [m_A, m_B], 1e-15)
+    # vs SciPy
+    lib = [*lib_posterior_stats(a_A, b_A), *lib_posterior_stats(a_B, b_B)]
+    log.compare(DATA, "posterior means/variances", "scipy.stats.beta", [m_A, v_A, m_B, v_B], lib, 1e-12)
+    grid = my_grid_probability(a_A, b_A, a_B, b_B, 10001)
+    quad = lib_prob_b_greater_a(a_A, b_A, a_B, b_B)
+    mc, se = my_mc_probability(a_A, b_A, a_B, b_B, M=100000, seed=0)
+    log.compare(DATA, "P(B>A) grid", "scipy.integrate.quad", grid, quad, 1e-6)
+    log.within_se(DATA, "P(B>A) Monte Carlo", "scipy.integrate.quad", mc, quad, se)
+    z, p = my_z_test(x_A, n_A, x_B, n_B)
+    z_lib, p_lib = lib_z_test(x_A, n_A, x_B, n_B)
+    log.compare(DATA, "z and p-value", "scipy chi2_contingency", [z, p], [z_lib, p_lib], 1e-10)
+    lo, hi = my_credible_interval(a_A, b_A, a_B, b_B, M=200000, seed=0)
+    elo, ehi = lib_credible_interval(a_A, b_A, a_B, b_B)
+    tol = max(lib_ci_endpoint_tolerance(a_A, b_A, a_B, b_B, elo, 200000),
+              lib_ci_endpoint_tolerance(a_A, b_A, a_B, b_B, ehi, 200000))
+    log.compare(DATA, "95% interval for pB-pA (MC)", "exact CDF root-finding", [lo, hi], [elo, ehi], tol)
+    print(f"posterior means {m_A:.6f}, {m_B:.6f}; P(B>A): grid {grid:.8f}, quad {quad:.8f}, "
+          f"MC {mc:.6f} (SE {se:.6f}); z = {z:.4f}, p = {p:.4f}; interval [{lo:.6f}, {hi:.6f}]")
+    report("posterior mean/var vs scipy", [m_A, v_A, m_B, v_B], lib)
+    report("grid vs quad", grid, quad)
+    return (x_A, n_A, x_B, n_B)
 
-    rmse_A = []
-    rmse_B = []
 
-    for n in sample_sizes:
-        squared_errors_A = []
-        squared_errors_B = []
+# ---------------------------------------------------------------------------
+def error_vs_n(log, reps=500):
+    print("\n=== 2. ERROR VS SAMPLE SIZE (log-log) ===")
+    sizes = [50, 100, 300, 500, 1000, 3000, 5000, 10000]
+    rmse_A, rmse_B, rows = [], [], []
+    for n in sizes:
+        err_A, err_B = [], []
+        for seed in range(reps):
+            (x_A, n_A, x_B, n_B), truth = simulate_ab(n=n, seed=seed)
+            err_A.append(my_posterior_stats(*my_beta_posterior(x_A, n_A))[0] - truth["p_A"])
+            err_B.append(my_posterior_stats(*my_beta_posterior(x_B, n_B))[0] - truth["p_B"])
+        rmse_A.append(float(np.sqrt(np.mean(np.square(err_A)))))
+        rmse_B.append(float(np.sqrt(np.mean(np.square(err_B)))))
+        # single run, seed 0, in posterior SDs
+        (x_A, n_A, x_B, n_B), truth = simulate_ab(n=n, seed=0)
+        mA, vA = my_posterior_stats(*my_beta_posterior(x_A, n_A))
+        mB, vB = my_posterior_stats(*my_beta_posterior(x_B, n_B))
+        rows.append((n, rmse_A[-1], rmse_B[-1], abs(mA - truth["p_A"]) / sqrt(vA),
+                     abs(mB - truth["p_B"]) / sqrt(vB)))
+        print(f"n={n:6d} | RMSE A={rmse_A[-1]:.6f} B={rmse_B[-1]:.6f} | seed-0 error in posterior SDs: "
+              f"A={rows[-1][3]:.2f} B={rows[-1][4]:.2f}")
+    slope_A = np.polyfit(np.log(sizes), np.log(rmse_A), 1)[0]
+    slope_B = np.polyfit(np.log(sizes), np.log(rmse_B), 1)[0]
+    print(f"Fitted log-log slopes: A = {slope_A:.3f}, B = {slope_B:.3f}  (theory -0.5)")
+    ok = all(-0.6 <= s <= -0.4 for s in (slope_A, slope_B))
+    log.add(DATA, "log-log slope of RMSE vs n (A, B)", "theory -1/2",
+            f"slopes {slope_A:.3f}, {slope_B:.3f} (allowed [-0.6, -0.4])", ok)
+    log.add(DATA, "seed-0 error at every n", "3 posterior SDs",
+            f"max {max(max(r[3], r[4]) for r in rows):.2f} SD (limit 3)",
+            max(max(r[3], r[4]) for r in rows) <= 3)
 
-        for seed in range(repetitions):
-            x_A, n_A, x_B, n_B = simulate_ab_test(
-                n_A=n,
-                n_B=n,
-                p_A=0.10,
-                p_B=0.12,
-                seed=seed
-            )
-
-            a_A, b_A = my_beta_posterior(x_A, n_A)
-            a_B, b_B = my_beta_posterior(x_B, n_B)
-
-            mean_A, _ = my_posterior_stats(a_A, b_A)
-            mean_B, _ = my_posterior_stats(a_B, b_B)
-
-            squared_errors_A.append((mean_A - 0.10)**2)
-            squared_errors_B.append((mean_B - 0.12)**2)
-
-        rmse_A.append(np.sqrt(np.mean(squared_errors_A)))
-        rmse_B.append(np.sqrt(np.mean(squared_errors_B)))
-
-        print(
-            f"n={n:5d} | "
-            f"RMSE A={rmse_A[-1]:.6f} | "
-            f"RMSE B={rmse_B[-1]:.6f}"
-        )
-
+    FIGS.mkdir(exist_ok=True)
     plt.figure(figsize=(8, 5))
-
-    plt.loglog(sample_sizes, rmse_A, "o-", label="Group A")
-    plt.loglog(sample_sizes, rmse_B, "s-", label="Group B")
-
-    plt.xlabel("Sample size per group (log scale)")
-    plt.ylabel("RMSE (log scale)")
-    plt.title("Bayesian Posterior Mean Error Convergence")
+    plt.loglog(sizes, rmse_A, "o-", label=f"Group A (slope {slope_A:.2f})")
+    plt.loglog(sizes, rmse_B, "s-", label=f"Group B (slope {slope_B:.2f})")
+    ref = [sqrt(0.11 * 0.89 / n) for n in sizes]
+    plt.loglog(sizes, ref, "k--", alpha=0.6, label=r"$\sqrt{p(1-p)/n}$ (slope $-1/2$)")
+    plt.xlabel("Sample size per group n (log scale)")
+    plt.ylabel("RMSE of posterior mean vs truth (log scale)")
+    plt.title(f"Posterior-mean error vs n ({reps} replications per n)")
     plt.legend()
     plt.grid(True, which="both", alpha=0.3)
-
     plt.tight_layout()
-    plt.savefig("error_convergence.png", dpi=300)
-    plt.show()
+    plt.savefig(FIGS / "error_convergence.png", dpi=300)
+    plt.close()
+    with open(DOCS / "error_convergence.csv", "w") as f:
+        f.write("n,rmse_A,rmse_B,seed0_error_A_in_sd,seed0_error_B_in_sd\n")
+        for r in rows:
+            f.write(",".join(f"{v:.6f}" if i else str(v) for i, v in enumerate(r)) + "\n")
 
 
-def stress_test():
-    print("\n=== STRESS TEST ===")
-
-    scenarios = [
-        ("Zero successes", 0, 100, 0, 100),
-        ("All successes", 100, 100, 100, 100),
-        ("Extreme difference", 1, 100, 99, 100)
-    ]
-
-    for name, x_A, n_A, x_B, n_B in scenarios:
-        print(f"\nScenario: {name}")
-
-        a_A, b_A = my_beta_posterior(x_A, n_A)
-        a_B, b_B = my_beta_posterior(x_B, n_B)
-
-        mean_A, var_A = my_posterior_stats(a_A, b_A)
-        mean_B, var_B = my_posterior_stats(a_B, b_B)
-
-        mc_prob, mc_se = my_mc_probability(
-            a_A, b_A, a_B, b_B,
-            M=100000, seed=0
-        )
-
-        print(f"Posterior mean A: {mean_A:.6f}")
-        print(f"Posterior mean B: {mean_B:.6f}")
-        print(f"P(B > A): {mc_prob:.6f}")
-        print(f"Monte Carlo SE: {mc_se:.6f}")
-
-        assert 0 <= mean_A <= 1
-        assert 0 <= mean_B <= 1
-        assert 0 <= mc_prob <= 1
-        assert var_A >= 0 and var_B >= 0
-
-        print("Status: PASSED")
+# ---------------------------------------------------------------------------
+def mc_se_check(log, counts):
+    print("\n=== 3. MONTE CARLO STANDARD ERROR (assumption A7) ===")
+    (a_A, b_A), (a_B, b_B) = posterior_pair(*counts)
+    q = lib_prob_b_greater_a(a_A, b_A, a_B, b_B)
+    worst = 0.0
+    for M in (100, 1000, 10000):
+        qhat = [my_mc_probability(a_A, b_A, a_B, b_B, M=M, seed=s)[0] for s in range(300)]
+        emp, formula = float(np.std(qhat, ddof=1)), sqrt(q * (1 - q) / M)
+        worst = max(worst, abs(emp - formula) / formula)
+        print(f"M={M:6d}: empirical SD of q_hat = {emp:.5f}   sqrt(q(1-q)/M) = {formula:.5f}")
+    log.add(DATA, "empirical SD of q_hat (M = 100, 1000, 10000)", "sqrt(q(1-q)/M)",
+            f"worst relative gap {worst:.1%} (limit 15%)", worst <= 0.15)
 
 
-def check_assumptions():
-    print("\n=== SIMULATION ASSUMPTION CHECKS ===")
+# ---------------------------------------------------------------------------
+def null_rejection(log):
+    print("\n=== 4. NULL REJECTION FREQUENCY: 1000 experiments, pA = pB = 0.10 ===")
+    rng = np.random.default_rng(0)
+    rej = 0
+    for _ in range(1000):
+        x_A, x_B = rng.binomial(1000, 0.10), rng.binomial(1000, 0.10)
+        rej += my_z_test(x_A, 1000, x_B, 1000)[1] < 0.05
+    rate = rej / 1000
+    print(f"Rejections: {rej}/1000 = {rate:.3f} (accept 0.036 - 0.064)")
+    log.add(DATA, "z-test false-positive rate (1000 runs)", "0.05 +/- 0.014",
+            f"{rate:.3f}", 0.05 - 0.014 <= rate <= 0.05 + 0.014)
 
-    x_A, n_A, x_B, n_B = simulate_ab_test()
 
+# ---------------------------------------------------------------------------
+def stress_degenerate(log):
+    print("\n=== 5a. STRESS TEST: degenerate counts ===")
+    ok_all = True
+    for name, x_A, n_A, x_B, n_B in [("Zero successes", 0, 100, 0, 100),
+                                     ("All successes", 100, 100, 100, 100),
+                                     ("Extreme difference", 1, 100, 99, 100)]:
+        (a_A, b_A), (a_B, b_B) = posterior_pair(x_A, n_A, x_B, n_B)
+        mA, vA = my_posterior_stats(a_A, b_A)
+        mB, vB = my_posterior_stats(a_B, b_B)
+        q, se = my_mc_probability(a_A, b_A, a_B, b_B, M=100000, seed=0)
+        ok = 0 <= mA <= 1 and 0 <= mB <= 1 and 0 <= q <= 1 and vA >= 0 and vB >= 0
+        try:                              # the z-test is undefined when p_pool is 0 or 1
+            my_z_test(x_A, n_A, x_B, n_B)
+            z_note = "z-test defined"
+        except ValueError:
+            z_note = "z-test undefined (SE0 = 0)"
+        print(f"{name:20s} means {mA:.4f}, {mB:.4f}  P(B>A) = {q:.4f}  [{z_note}]  {'PASS' if ok else 'FAIL'}")
+        ok_all &= ok
+    log.add("Simulation (stress test)", "degenerate counts 0/100, 100/100, 1/100 vs 99/100",
+            "valid probabilities", "posterior stays valid; z-test raises an error when SE0 = 0", ok_all)
+
+
+def prior_sensitivity(counts_by_n):
+    print("\n=== 5b. PRIOR SENSITIVITY (assumption A6) ===")
+    priors = [(1, 1), (0.5, 0.5), (1, 9), (10, 90), (50, 50)]
+    rows = []
+    for n, counts in counts_by_n.items():
+        for a, b in priors:
+            (a_A, b_A), (a_B, b_B) = posterior_pair(*counts, a=a, b=b)
+            mA = my_posterior_stats(a_A, b_A)[0]
+            mB = my_posterior_stats(a_B, b_B)[0]
+            q, se = my_mc_probability(a_A, b_A, a_B, b_B, M=100000, seed=0)
+            rows.append((n, f"Beta({a},{b})", mA, mB, q, se))
+            print(f"n={n:5d} prior Beta({a},{b}): mean A {mA:.4f}, mean B {mB:.4f}, P(B>A) = {q:.4f} (SE {se:.4f})")
+    with open(DOCS / "prior_sensitivity.csv", "w") as f:
+        f.write("n_per_group,prior,mean_A,mean_B,P_B_gt_A,MC_SE\n")
+        for r in rows:
+            f.write(f"{r[0]},{r[1]},{r[2]:.6f},{r[3]:.6f},{r[4]:.6f},{r[5]:.6f}\n")
+    return rows
+
+
+def overlap_stress(log):
+    print("\n=== 5c. STRESS TEST: users in BOTH arms (assumption A5) ===")
+    n, p, reps = 1000, 0.10, 10000
+    naive_sd = sqrt(2 * p * (1 - p) / n)          # SD of pB_hat - pA_hat if arms were independent
+    rows = []
+    for overlap in (0, 100, 500):
+        x_A, x_B = simulate_shared_users(n=n, overlap=overlap, p=p, reps=reps, seed=0)
+        diff = x_B / n - x_A / n
+        emp_sd = float(np.std(diff, ddof=1))
+        ratio_emp, ratio_th = emp_sd / naive_sd, sqrt(1 - overlap / n)
+        rej = np.mean([my_z_test(int(a), n, int(b), n)[1] < 0.05 for a, b in zip(x_A, x_B)])
+        rej_th = erfc((1.96 / ratio_th) / sqrt(2))
+        rej_se = sqrt(rej_th * (1 - rej_th) / reps)
+        ids_A, ids_B = np.arange(n), np.concatenate([np.arange(overlap), np.arange(n, 2 * n - overlap)])
+        n_both = len(np.intersect1d(ids_A, ids_B))
+        print(f"overlap {overlap:3d} ({overlap / n:4.0%}): users in both arms = {n_both:3d} -> assumption check "
+              f"{'FAIL' if n_both else 'pass'};  true SD / naive SD = {ratio_emp:.3f} (theory {ratio_th:.3f});  "
+              f"false-positive rate = {rej:.4f} (theory {rej_th:.4f}, nominal 0.05)")
+        rows.append((overlap, n_both, ratio_emp, ratio_th, rej, rej_th))
+        log.add("Simulation (stress test)", f"SD(pB-pA) / naive SE, {overlap / n:.0%} overlap",
+                f"theory sqrt(1-overlap) = {ratio_th:.3f}",
+                f"{ratio_emp:.3f} (rel. {abs(ratio_emp - ratio_th) / ratio_th:.1%})",
+                abs(ratio_emp - ratio_th) / ratio_th <= 0.03)
+        log.within_se("Simulation (stress test)", f"z-test false-positive rate, {overlap / n:.0%} overlap",
+                      "theory 2(1-Phi(1.96/ratio))", rej, rej_th, rej_se)
+    with open(DOCS / "overlap_stress.csv", "w") as f:
+        f.write("overlap_users,users_in_both_arms,sd_ratio_empirical,sd_ratio_theory,false_pos_empirical,false_pos_theory\n")
+        for r in rows:
+            f.write(",".join(f"{v:.5f}" if isinstance(v, float) else str(v) for v in r) + "\n")
+    return rows
+
+
+# ---------------------------------------------------------------------------
+def assumption_checks(log, counts):
+    print("\n=== 6. ASSUMPTION CHECKS ON SIMULATED DATA (should pass) ===")
+    x_A, n_A, x_B, n_B = counts
+    z, p = my_srm_test(n_A, n_B)
+    min_count = my_normal_approx_min_count(x_A, n_A, x_B, n_B)
     checks = {
-        "Positive group sizes": n_A > 0 and n_B > 0,
-        "Valid success counts":
-            0 <= x_A <= n_A and 0 <= x_B <= n_B,
-        "Binary outcome rates":
-            0 <= x_A / n_A <= 1 and
-            0 <= x_B / n_B <= 1,
-        "Positive Beta prior parameters": True
+        "A1 binary outcome: counts valid (0 <= x <= n)": 0 <= x_A <= n_A and 0 <= x_B <= n_B,
+        "A4 sample-ratio test (equal group sizes by design)": p > 0.05,
+        "A5 independent arms: no user ids shared": True,   # generator draws separate arms
+        "A6 prior parameters positive": True,
+        "A8 normal approximation: min expected count >= 10": min_count >= 10,
     }
-
-    for name, passed in checks.items():
-        print(f"{name}: {'PASS' if passed else 'FAIL'}")
-
-    assert all(checks.values())
-
-    print("\nSimulation design assumptions:")
-    print("- Independent Bernoulli trials: assumed by generator")
-    print("- Fixed probabilities within groups: 0.10 and 0.12")
-    print("- Uniform Beta(1,1) prior: specified")
-    print("- Random assignment: not explicitly simulated")
+    for name, ok in checks.items():
+        print(f"{name}: {'PASS' if ok else 'FAIL'}")
+    print(f"SRM z = {z:.3f}, p = {p:.3f};  min expected count = {min_count:.1f}")
+    print("A2/A3/A7: independent Bernoulli trials with one probability per arm and independent Monte Carlo "
+          "draws hold by construction (A7 verified in section 3).")
+    log.add(DATA, "assumption checks A1, A4, A5, A6, A8", "hold by construction",
+            f"min expected count {min_count:.0f}; SRM p = {p:.2f}", all(checks.values()))
 
 
-def test_null_rejection_rate():
-    """
-    Check the false-positive rate of the z-test
-    when p_A = p_B = 0.10.
-    """
-    print("\n=== NULL SIMULATION: 1000 EXPERIMENTS ===")
-
-    rng = np.random.default_rng(0)
-
-    n_A = 1000
-    n_B = 1000
-    p_A = 0.10
-    p_B = 0.10
-    repetitions = 1000
-    alpha = 0.05
-
-    rejections = 0
-
-    for _ in range(repetitions):
-        x_A = rng.binomial(n_A, p_A)
-        x_B = rng.binomial(n_B, p_B)
-
-        z, p_value = my_z_test(
-            x_A, n_A, x_B, n_B
-        )
-
-        if p_value < alpha:
-            rejections += 1
-
-    rejection_rate = rejections / repetitions
-
-    print(f"Experiments: {repetitions}")
-    print(f"Rejections: {rejections}")
-    print(f"Observed rejection rate: {rejection_rate:.4f}")
-    print(f"Expected rejection rate: {alpha:.4f}")
-
-    lower = 0.05 - 0.014
-    upper = 0.05 + 0.014
-
-    passed = lower <= rejection_rate <= upper
-
-    print(f"Acceptable range: [{lower:.3f}, {upper:.3f}]")
-    print(f"Result: {'PASS' if passed else 'CHECK'}")
-
-
-def test_overlapping_users():
-    print("\n=== STRESS TEST: OVERLAPPING USERS ===")
-
-    rng = np.random.default_rng(0)
-
-    n = 1000
-    overlap = 100
-
-    # Group A: users 0 through 999
-    ids_A = np.arange(n)
-
-    # Group B: first 100 users overlap with A
-    ids_B = np.concatenate([
-        np.arange(overlap),
-        np.arange(n, 2 * n - overlap)
-    ])
-
-    # Simulate binary retention outcomes
-    outcomes_A = rng.binomial(1, 0.10, n)
-    outcomes_B = rng.binomial(1, 0.12, n)
-
-    # Identify users assigned to both groups
-    overlapping_ids = np.intersect1d(ids_A, ids_B)
-
-    print(f"Group A users: {len(ids_A)}")
-    print(f"Group B users: {len(ids_B)}")
-    print(f"Users in both groups: {len(overlapping_ids)}")
-    print(f"Overlap percentage: {100 * len(overlapping_ids) / n:.1f}%")
-
-    # Apply the usual A/B test despite invalid assignment
-    x_A = int(outcomes_A.sum())
-    x_B = int(outcomes_B.sum())
-
-    z, p_value = my_z_test(x_A, n, x_B, n)
-
-    print(f"\nNaive z-statistic: {z:.6f}")
-    print(f"Naive p-value: {p_value:.6f}")
-
-    print("\nAssumption check:")
-    if len(overlapping_ids) > 0:
-        print("FAIL: Users appear in both groups.")
-        print("The independent-arm model is not justified.")
-        print("The usual z-test standard error may be incorrect.")
-
-
-def verify_grid_integration():
-    from scipy.stats import beta
-    from scipy.integrate import quad
-
-    print("\n=== GRID VS SCIPY INTEGRATION ===")
-
-    # Small example: A = 3/10, B = 5/10
-    a_A, b_A = my_beta_posterior(3, 10)
-    a_B, b_B = my_beta_posterior(5, 10)
-
-    grid_result = my_grid_probability(
-        a_A, b_A, a_B, b_B,
-        grid_size=10001
-    )
-
-    scipy_result, _ = quad(
-        lambda y: beta.pdf(y, a_B, b_B)
-                  * beta.cdf(y, a_A, b_A),
-        0, 1,
-        epsabs=1e-12
-    )
-
-    error = abs(grid_result - scipy_result)
-
-    print(f"Our grid result: {grid_result:.10f}")
-    print(f"SciPy result:    {scipy_result:.10f}")
-    print(f"Absolute error:  {error:.2e}")
-    print(f"Required error:  1.00e-06")
-    print(f"Result: {'PASS' if error <= 1e-6 else 'CHECK'}")
-
-
-def verify_simulation_probability():
-    from scipy.stats import beta
-    from scipy.integrate import quad
-
-    print("\n=== SIMULATION PROBABILITY VERIFICATION ===")
-
-    # Results from the simulation with seed=0
-    x_A, n_A = 96, 1000
-    x_B, n_B = 118, 1000
-
-    a_A, b_A = my_beta_posterior(x_A, n_A)
-    a_B, b_B = my_beta_posterior(x_B, n_B)
-
-    grid_result = my_grid_probability(
-        a_A, b_A, a_B, b_B,
-        grid_size=10001
-    )
-
-    scipy_result, _ = quad(
-        lambda y: beta.pdf(y, a_B, b_B)
-                  * beta.cdf(y, a_A, b_A),
-        0, 1,
-        epsabs=1e-12,
-        limit=300,
-        points=[
-            a_A / (a_A + b_A),
-            a_B / (a_B + b_B)
-        ]
-    )
-
-    mc_result, mc_se = my_mc_probability(
-        a_A, b_A, a_B, b_B,
-        M=100000, seed=0
-    )
-
-    grid_error = abs(grid_result - scipy_result)
-    mc_error = abs(mc_result - scipy_result)
-
-    print(f"Grid probability:  {grid_result:.10f}")
-    print(f"SciPy probability: {scipy_result:.10f}")
-    print(f"Monte Carlo:       {mc_result:.10f}")
-    print(f"Monte Carlo SE:    {mc_se:.10f}")
-
-    print(f"\nGrid absolute error: {grid_error:.2e}")
-    print(f"MC difference / SE: {mc_error / mc_se:.3f}")
-
-    print(
-        "Grid verification:",
-        "PASS" if grid_error <= 1e-6 else "CHECK"
-    )
-    print(
-        "Monte Carlo verification:",
-        "PASS" if mc_error <= 3 * mc_se else "CHECK"
-    )
-
+def main():
+    DOCS.mkdir(exist_ok=True)
+    log = VerificationLog("verification_simulation.csv")
+    counts = main_run(log)
+    error_vs_n(log)
+    mc_se_check(log, counts)
+    null_rejection(log)
+    stress_degenerate(log)
+    counts_by_n = {1000: counts, 50: simulate_ab(n=50, seed=0)[0]}
+    prior_sensitivity(counts_by_n)
+    overlap_stress(log)
+    assumption_checks(log, counts)
+    log.save()
 
 
 if __name__ == "__main__":
     main()
-    test_sample_sizes()
-    verify_with_scipy()
-    plot_error_convergence()
-    stress_test()
-    check_assumptions()
-    test_null_rejection_rate()
-    test_overlapping_users()
-    verify_grid_integration()
-    verify_simulation_probability()
